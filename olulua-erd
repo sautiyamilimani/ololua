@@ -1,0 +1,526 @@
+title Ololua MIS - Database
+
+// ==========================================
+// AUTHENTICATION AND ACCESS
+// ==========================================
+
+users [icon: user, color: blue] {
+  id uuid pk
+  full_name varchar(150) "not null"
+  email varchar(254) "unique not null, case-insensitive (citext or lower(email))"
+  phone_number varchar(20) "unique, nullable"
+  password_hash text "null until invitation accepted"
+  account_type varchar(20) "not null: staff | customer"
+  status varchar(20) "not null: invited | active | suspended | disabled"
+  failed_login_count integer "not null, default 0"
+  locked_until timestamptz
+  last_login_at timestamptz
+  email_verified_at timestamptz
+  password_changed_at timestamptz
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+sessions [icon: monitor, color: green] {
+  id uuid pk
+  user_id uuid fk
+  token_hash text "unique not null"
+  ip_address inet
+  user_agent text
+  created_at timestamptz "not null"
+  last_activity_at timestamptz "not null"
+  idle_expires_at timestamptz "not null"
+  expires_at timestamptz "not null"
+  revoked_at timestamptz
+}
+
+roles [icon: shield, color: purple] {
+  id uuid pk
+  role_key varchar(50) "unique not null"
+  display_name varchar(100) "not null"
+  description text
+  is_system_role boolean "not null"
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+permissions [icon: key, color: orange] {
+  id uuid pk
+  permission_key varchar(100) "unique not null"
+  display_name varchar(120) "not null"
+  description text
+  module varchar(50) "not null"
+  created_at timestamptz "not null"
+}
+
+role_permissions [icon: link, color: teal] {
+  role_id uuid pk, fk
+  permission_id uuid pk, fk
+  assigned_at timestamptz "not null"
+  assigned_by uuid fk
+}
+
+user_roles [icon: users, color: pink] {
+  user_id uuid pk, fk
+  role_id uuid pk, fk
+  assigned_at timestamptz "not null"
+  assigned_by uuid fk
+}
+
+invitations [icon: mail, color: yellow] {
+  id uuid pk
+  user_id uuid fk "one pending invitation per user (partial unique index)"
+  role_id uuid fk
+  invited_email varchar(254) "not null"
+  token_hash text "unique not null"
+  invited_by uuid fk
+  status varchar(20) "not null: pending | accepted | revoked | expired"
+  created_at timestamptz "not null"
+  expires_at timestamptz "not null"
+  accepted_at timestamptz
+  revoked_at timestamptz
+}
+
+password_reset_tokens [icon: key-round, color: red] {
+  id uuid pk
+  user_id uuid fk
+  token_hash text "unique not null"
+  created_at timestamptz "not null"
+  expires_at timestamptz "not null"
+  used_at timestamptz
+  invalidated_at timestamptz
+}
+
+email_verification_tokens [icon: mail-check, color: cyan] {
+  id uuid pk
+  user_id uuid fk
+  email varchar(254) "not null"
+  purpose varchar(30) "not null"
+  token_hash text "unique not null"
+  created_at timestamptz "not null"
+  expires_at timestamptz "not null"
+  verified_at timestamptz
+  invalidated_at timestamptz
+}
+
+rate_limits [icon: gauge, color: "#c2410c"] {
+  id uuid pk
+  bucket_key text "unique not null: hashed email or IP + action"
+  action varchar(50) "not null"
+  attempt_count integer "not null"
+  window_started_at timestamptz "not null"
+  blocked_until timestamptz
+  updated_at timestamptz "not null"
+}
+
+customer_user_access [icon: link, color: indigo] {
+  id uuid pk
+  user_id uuid fk
+  customer_id uuid fk
+  granted_by uuid fk
+  created_at timestamptz "not null"
+  revoked_at timestamptz
+}
+
+audit_logs [icon: history, color: gray] {
+  id uuid pk
+  actor_user_id uuid fk "nullable: system and unauthenticated events"
+  action varchar(100) "not null"
+  entity_type varchar(50) "not null"
+  entity_id uuid
+  old_values jsonb "never store secrets or tokens"
+  new_values jsonb "never store secrets or tokens"
+  metadata jsonb
+  ip_address inet
+  user_agent text
+  request_id uuid
+  created_at timestamptz "not null"
+}
+
+account_security_events [icon: shield, color: lime] {
+  id uuid pk
+  user_id uuid fk
+  event_type varchar(60) "not null"
+  email_attempted varchar(254)
+  ip_address inet
+  user_agent text
+  metadata jsonb
+  request_id uuid
+  created_at timestamptz "not null"
+}
+
+email_outbox [icon: mail, color: magenta] {
+  id uuid pk
+  recipient_user_id uuid fk
+  recipient_email varchar(254) "not null"
+  template_key varchar(100) "not null"
+  template_data jsonb
+  secret_payload_encrypted bytea "purge after sending"
+  status varchar(20) "not null: queued | sending | sent | failed"
+  attempts integer "not null"
+  max_attempts integer "not null"
+  next_attempt_at timestamptz "not null"
+  locked_until timestamptz
+  locked_by varchar(100)
+  provider_message_id varchar(255)
+  last_error text
+  idempotency_key varchar(255) "unique"
+  sent_at timestamptz
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+settings [icon: settings, color: gray] {
+  key varchar(100) pk "e.g. invoice_due_days"
+  value text "not null"
+  description text
+  updated_by uuid fk
+  updated_at timestamptz "not null"
+}
+
+// ==========================================
+// CUSTOMERS
+// ==========================================
+
+customers [icon: contact-round, color: brown] {
+  id uuid pk
+  customer_number varchar(30) "unique not null"
+  customer_type varchar(20) "not null: individual | business"
+  full_name varchar(150) "not null"
+  phone varchar(20) "not null"
+  email varchar(254) "required before the customer can be invited"
+  physical_address text
+  location_description text
+  status varchar(20) "not null: active | inactive"
+  notes text
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+zones [icon: map-pin, color: "#0e7490"] {
+  id uuid pk
+  zone_name varchar(100) "unique not null"
+  county varchar(60)
+  town varchar(60)
+  latitude numeric(9,6)
+  longitude numeric(9,6)
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+// ==========================================
+// SERVICES AND TARIFFS
+// ==========================================
+
+service_types [icon: layers, color: "#0f766e"] {
+  id uuid pk
+  service_code varchar(30) "unique not null"
+  service_name varchar(100) "unique not null"
+  description text
+  status varchar(20) "not null, default ACTIVE: ACTIVE | INACTIVE"
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+units_of_measure [icon: ruler, color: "#0369a1"] {
+  id uuid pk
+  unit_code varchar(20) "unique not null"
+  unit_name varchar(50) "unique not null"
+  description text
+  created_at timestamptz "not null"
+}
+
+service_variants [icon: package, color: "#7c3aed"] {
+  id uuid pk
+  service_type_id uuid fk
+  unit_id uuid fk
+  variant_code varchar(40) "unique not null"
+  variant_name varchar(120) "not null"
+  description text
+  status varchar(20) "not null, default ACTIVE: ACTIVE | INACTIVE"
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+service_tariffs [icon: wallet, color: "#65a30d"] {
+  id uuid pk
+  service_variant_id uuid fk
+  rate numeric(12,2) "not null"
+  effective_from date "not null"
+  effective_to date "null = open ended"
+  status varchar(20) "not null, default DRAFT: DRAFT | ACTIVE | INACTIVE"
+  created_by uuid fk
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+// ==========================================
+// METERED WATER
+// ==========================================
+
+meters [icon: gauge, color: gold] {
+  id uuid pk
+  serial_number varchar(50) "unique not null"
+  status varchar(20) "not null: ACTIVE | DEFECTIVE"
+  notes text
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+customer_meter_accounts [icon: house, color: "#1e3a8a"] {
+  id uuid pk
+  account_number varchar(30) "unique not null"
+  customer_id uuid fk
+  service_variant_id uuid fk
+  zone_id uuid fk "optional, nullable"
+  property_address text "not null"
+  location_description text
+  notes text
+  status varchar(20) "not null, default ACTIVE: ACTIVE | SUSPENDED | CLOSED"
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+meter_assignments [icon: link, color: teal] {
+  id uuid pk
+  meter_id uuid fk
+  customer_meter_account_id uuid fk
+  initial_reading numeric(12,3) "not null: baseline for the first reading"
+  assigned_at timestamptz "not null"
+  assigned_by uuid fk
+  removed_at timestamptz
+  removed_by uuid fk
+  removal_reason text "e.g. replaced, defective, account closed"
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+meter_readings [icon: clipboard-list, color: "#b45309"] {
+  id uuid pk
+  meter_assignment_id uuid fk
+  reading_at timestamptz "not null"
+  previous_reading numeric(12,3) "not null"
+  current_reading numeric(12,3) "not null"
+  consumption numeric(12,3) "not null"
+  submitted_by uuid fk
+  idempotency_key varchar(100) "unique not null"
+  unusual_consumption_flag boolean "not null, default false"
+  notes text
+  created_at timestamptz "not null"
+}
+
+// ==========================================
+// BILLING AND PAYMENTS
+// ==========================================
+
+customer_meter_billings [icon: file-text, color: "#be123c"] {
+  id uuid pk
+  invoice_number varchar(40) "unique not null"
+  customer_meter_account_id uuid fk
+  meter_reading_id uuid fk "unique"
+  service_tariff_id uuid fk "traceability; rate below is the snapshot"
+  billing_period_start date "not null"
+  billing_period_end date "not null"
+  previous_reading numeric(12,3) "not null"
+  current_reading numeric(12,3) "not null"
+  consumption numeric(12,3) "not null"
+  tariff_rate numeric(12,2) "not null"
+  total_amount numeric(12,2) "not null"
+  issued_at timestamptz "not null"
+  due_date date "not null"
+  status varchar(20) "not null, default UNPAID: UNPAID | PARTIALLY_PAID | PAID | OVERDUE | CANCELLED"
+  cancelled_at timestamptz
+  cancelled_by uuid fk
+  cancel_reason text
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+customer_meter_payments [icon: credit-card, color: "#15803d"] {
+  id uuid pk
+  receipt_number varchar(40) "unique not null"
+  external_reference varchar(100) "unique, nullable: M-Pesa code, bank ref"
+  customer_meter_account_id uuid fk
+  amount numeric(12,2) "not null"
+  payment_method varchar(30) "not null: cash | mpesa | bank | other"
+  status varchar(20) "not null, default COMPLETED: PENDING | COMPLETED | FAILED | REVERSED"
+  paid_at timestamptz "not null"
+  recorded_by uuid fk "staff member for manual entry, null for automated"
+  payer_phone varchar(20) "for STK push (later)"
+  checkout_request_id varchar(100) "unique, nullable, for STK push (later)"
+  merchant_request_id varchar(100) "nullable, for STK push (later)"
+  reversed_at timestamptz
+  reversed_by uuid fk
+  reversal_reason text
+  notes text
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+customer_meter_payment_allocations [icon: git-merge, color: "#0891b2"] {
+  payment_id uuid pk, fk
+  billing_id uuid pk, fk
+  customer_meter_account_id uuid fk "must match payment and billing account"
+  allocated_amount numeric(12,2) "not null"
+  created_by uuid fk
+  created_at timestamptz "not null"
+}
+
+// ==========================================
+// RELATIONSHIPS
+// ==========================================
+
+// CUSTOMERS AND ACCOUNTS
+customers.id < customer_meter_accounts.customer_id
+service_variants.id < customer_meter_accounts.service_variant_id
+zones.id < customer_meter_accounts.zone_id
+
+// ASSIGNMENTS AND READINGS
+customer_meter_accounts.id < meter_assignments.customer_meter_account_id
+meters.id < meter_assignments.meter_id
+users.id < meter_assignments.assigned_by
+users.id < meter_assignments.removed_by
+
+meter_assignments.id < meter_readings.meter_assignment_id
+users.id < meter_readings.submitted_by
+
+// SERVICES AND TARIFFS
+service_types.id < service_variants.service_type_id
+units_of_measure.id < service_variants.unit_id
+service_variants.id < service_tariffs.service_variant_id
+users.id < service_tariffs.created_by
+
+// BILLING
+customer_meter_accounts.id < customer_meter_billings.customer_meter_account_id
+meter_readings.id - customer_meter_billings.meter_reading_id
+service_tariffs.id < customer_meter_billings.service_tariff_id
+users.id < customer_meter_billings.cancelled_by
+
+// PAYMENTS
+customer_meter_accounts.id < customer_meter_payments.customer_meter_account_id
+users.id < customer_meter_payments.recorded_by
+users.id < customer_meter_payments.reversed_by
+
+customer_meter_payments.id < customer_meter_payment_allocations.payment_id
+customer_meter_billings.id < customer_meter_payment_allocations.billing_id
+customer_meter_accounts.id < customer_meter_payment_allocations.customer_meter_account_id
+users.id < customer_meter_payment_allocations.created_by
+
+// AUTH
+users.id < sessions.user_id
+
+users.id < user_roles.user_id
+roles.id < user_roles.role_id
+users.id < user_roles.assigned_by
+
+roles.id < role_permissions.role_id
+permissions.id < role_permissions.permission_id
+users.id < role_permissions.assigned_by
+
+users.id < invitations.user_id
+users.id < invitations.invited_by
+roles.id < invitations.role_id
+
+users.id < password_reset_tokens.user_id
+users.id < email_verification_tokens.user_id
+
+users.id < customer_user_access.user_id
+customers.id < customer_user_access.customer_id
+users.id < customer_user_access.granted_by
+
+users.id < audit_logs.actor_user_id
+users.id < account_security_events.user_id
+users.id < email_outbox.recipient_user_id
+users.id < settings.updated_by
+
+// ==========================================
+// DATABASE CONSTRAINTS (cannot be drawn)
+// ==========================================
+
+// ASSIGNMENTS
+// - UNIQUE (meter_id) WHERE removed_at IS NULL            -> one active assignment per meter
+// - decide whether an account may have several active meters; if not:
+//   UNIQUE (customer_meter_account_id) WHERE removed_at IS NULL
+
+// READINGS
+// - CHECK (current_reading >= previous_reading)
+// - CHECK (consumption = current_reading - previous_reading)
+// - UNIQUE (meter_assignment_id, reading_at)
+// - first reading of an assignment uses meter_assignments.initial_reading as previous_reading
+// - later readings use the last accepted reading of the same assignment (check inside a locked transaction)
+
+// TARIFFS
+// - EXCLUDE USING gist (service_variant_id WITH =,
+//     daterange(effective_from, effective_to, '[)') WITH &&) WHERE (status = 'ACTIVE')
+//   (requires the btree_gist extension)
+
+// BILLING
+// - UNIQUE (id, customer_meter_account_id) on customer_meter_billings
+
+// PAYMENTS
+// - UNIQUE (id, customer_meter_account_id) on customer_meter_payments
+// - allocations: FOREIGN KEY (payment_id, customer_meter_account_id)
+//     REFERENCES customer_meter_payments (id, customer_meter_account_id)
+// - allocations: FOREIGN KEY (billing_id, customer_meter_account_id)
+//     REFERENCES customer_meter_billings (id, customer_meter_account_id)
+//   together these enforce rule 30 (same account)
+// - CHECK (amount > 0), CHECK (allocated_amount > 0)
+// - total allocations per payment <= payment amount (transaction + row lock)
+// - total allocations per bill <= bill total_amount (transaction + row lock)
+// - only COMPLETED payments can be allocated; reversing a payment must reverse its allocations
+
+// AUTH
+// - UNIQUE (user_id) WHERE status = 'pending' on invitations
+// - ON DELETE RESTRICT or SET NULL on audit_logs, account_security_events and email_outbox FKs (never CASCADE)
+
+// ==========================================
+// BUSINESS RULES - METERED WATER
+// ==========================================
+
+// METER ASSIGNMENTS
+// 1. A physical meter can have only ONE active assignment at a time.
+// 2. A meter can be removed from an account and reassigned later.
+// 3. Previous assignments must remain in the database.
+// 4. A defective meter cannot receive new readings.
+// 5. A suspended or closed account cannot receive new readings.
+
+// METER READINGS
+// 6. Current reading must be >= previous reading.
+// 7. Consumption = current reading - previous reading.
+// 8. Readings are automatically accepted after successful validation.
+// 9. Duplicate reading submissions must be prevented.
+// 10. Zero consumption is allowed but must trigger a warning.
+// 11. Unusual consumption is flagged for investigation, not rejected.
+// 12. Accepted readings must not be silently edited or deleted.
+
+// MONTHLY READING PROGRESS
+// 13. Each eligible active account counts once per month.
+// 14. An account counts as read after at least one accepted reading.
+// 15. Zero and unusual readings still count as completed readings.
+// 16. Reading progress is independent of invoice generation.
+
+// TARIFFS
+// 17. Each service variant uses its applicable tariff.
+// 18. A tariff is selected using its effective date and ACTIVE status.
+// 19. Active tariff periods for the same variant must not overlap.
+// 20. Historical tariffs must be retained.
+// 21. Existing invoices must retain their original tariff rate.
+
+// BILLING
+// 22. Every accepted meter reading generates one invoice.
+// 23. A reading must never generate more than one invoice.
+// 24. Invoice amounts and reading values must be stored as snapshots.
+// 25. Billing periods represent the interval between readings.
+// 26. OVERDUE is calculated from due date and outstanding balance.
+
+// PAYMENTS
+// 27. A payment belongs to one customer meter account.
+// 28. A payment can be allocated across multiple invoices.
+// 29. An invoice can receive multiple payments.
+// 30. Allocations must belong to the same customer meter account.
+// 31. Total allocations cannot exceed the payment amount.
+// 32. Total allocations cannot exceed an invoice's outstanding balance.
+// 33. Unallocated payment amounts remain as customer credit.
+// 34. Duplicate external payment references must be rejected.
+// 35. Payments and allocations must not be silently deleted.
+// 36. Corrections and reversals must be auditable.
