@@ -1,6 +1,6 @@
 # Authentication API contract
 
-**Status:** Login, session-check, and logout Route Handlers are implemented. Password provisioning and authorization remain out of scope.
+**Status:** Login, session-check, and logout Route Handlers are implemented. The sign-in page is also implemented; session management UI, password provisioning beyond the separate invitation/reset pages, and authorization remain out of scope.
 
 ## Scope
 

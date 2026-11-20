@@ -25,7 +25,7 @@ Build a reliable Water Services Management Information System for Ololua. Correc
 
 ## 4. Current stage and progress
 
-**Current stage: Stage 4 - Frontend (invitation acceptance and password-reset pages approved).**
+**Current stage: Stage 4 - Frontend (sign-in, invitation acceptance, and password-reset pages approved).**
 
 Completed in the initial task:
 
@@ -446,9 +446,9 @@ Remaining boundaries at invitation-issuance completion: invitation email deliver
 
 ## 9. Next step
 
-Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The user approved continuing with the invitation acceptance and password-reset pages; that focused Stage 4 work is complete in section 13. Broader frontend and PWA work is not approved. Outbox sending remains disabled by default.
+Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The approved focused Stage 4 slices for sign-in, invitation acceptance, and password reset are complete in sections 13-14. Broader frontend and PWA work is not approved. Outbox sending remains disabled by default.
 
-Next step: review the completed pages with the user and obtain a separate scope/approval before expanding Stage 4. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable application origin and review sender deliverability.
+Next step: review the completed authentication pages with the user and obtain a separate scope/approval before expanding Stage 4. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable application origin and review sender deliverability.
 
 ---
 
@@ -510,15 +510,17 @@ At worker completion, the next step was to request Stage 4 approval for those pa
 
 This section is the current continuation note for a fresh Copilot session/account. Read `AGENTS.md`, this progress file, and the relevant API contract before making changes; do not rely on the previous conversation being available.
 
-- Current approved scope: Stage 4 - the invitation acceptance and password-reset pages only. Do not expand to other frontend features or PWA work without further approval.
-- The invitation, login/session/logout, and password-reset APIs and the one-shot SMTP outbox worker are implemented. The `/accept-invitation` and `/reset-password` pages are implemented; see section 13.
+- Current approved scope: Stage 4 - the sign-in, invitation acceptance, and password-reset pages only. Do not expand to other frontend features or PWA work without further approval.
+- The invitation, login/session/logout, and password-reset APIs and the one-shot SMTP outbox worker are implemented. The `/sign-in`, `/accept-invitation`, and `/reset-password` pages are implemented; see sections 13-14.
 - The SMTP worker has not sent queued application email. `EMAIL_OUTBOX_ENABLED` is intentionally false by default. Do not enable it until `APP_ORIGIN` points to a reachable deployment and sender deliverability is reviewed. The standalone Gmail test was accepted by SMTP but went to Spam; inbox delivery is unresolved.
 - Migration `0012_add_invitation_customer_targets.sql` was applied to the loopback development database; the Drizzle journal has 13 entries. No production migration or production data change was made.
-- The Stage 3 implementation was committed and pushed to `origin/main` as `d6309942c0a030c1179d12fbd6cd4078b7a072db`. `.env` was not staged and the repo was clean after that push. The Stage 4 page changes in section 13 are later and currently uncommitted.
+- The Stage 3 implementation was committed and pushed to `origin/main` as `d6309942c0a030c1179d12fbd6cd4078b7a072db`; invitation/reset pages were later pushed as `5f8461b9ea8b55fd5765440753970de16f2ed200`. `.env` was not staged. Sign-in page changes in section 14 are newer and currently uncommitted.
 - Verification recorded for this implementation: TypeScript, lint, auth unit/integration tests, email outbox integration tests, production build, Drizzle generation, SMTP credential verification (no email sent), and production dependency audit passed. See section 11 for exact commands and results; do not rerun SMTP sending as a handoff check.
 - Before future database changes, confirm the supplied ERD is available; it was provided as a conversation attachment and is not stored in the repository. Do not infer missing schema/business rules.
 
-Recommended next action: review the two completed pages and obtain the user's separate approval before taking on any other frontend or PWA feature.
+Recommended next action: review the three completed authentication pages and obtain the user's separate approval before taking on any other frontend or PWA feature.
+
+- A separate `.env.example` modification was present while the Stage 4 pages were committed and was deliberately left unstaged. Inspect its sanitized diff before any later staging; do not overwrite it or assume it belongs to the page work.
 
 ## 13. Stage 4 invitation and password-reset pages: complete
 
@@ -537,4 +539,24 @@ Verification:
 - `npm run build` passed. Next lists both pages as partially prerendered, with token-dependent content streamed inside Suspense boundaries.
 - Browser verification against a temporary local production server confirmed the reset form renders for a valid-shape token, malformed reset links show an error without a form, mismatched passwords produce the client-side error, and the invitation form renders. The temporary server was stopped.
 - `git diff --check` passed.
-- Changes are not yet committed or pushed.
+- At completion of this section, changes were not yet committed; they were later pushed as `5f8461b9ea8b55fd5765440753970de16f2ed200`.
+
+## 14. Stage 4 sign-in page: complete
+
+- The user approved continuing with Stage 4. As the next foundational slice, added `/sign-in` using the existing `POST /api/auth/login` contract. The page supports both staff and customer credentials.
+- Added a reusable auth-page shell and refactored the invitation/reset pages to use it.
+- The sign-in form sends same-origin JSON with the CSRF marker, disables duplicate submissions, validates the response envelope, and shows the same generic invalid-credentials message for all login/account-state failures. It does not impose password-setting minimums on sign-in.
+- On success, the session cookie is retained by the same-origin fetch and the page confirms the safe returned display name. No dashboard redirect is attempted because a dashboard is not implemented.
+- No session logic/API, schema, migration, production data, or email-sending configuration was changed. The unrelated `.env.example` modification remains uncommitted.
+- Files changed: `src/app/sign-in/page.tsx`, `src/components/auth/sign-in-form.tsx`, `src/components/auth/auth-page-shell.tsx`, the invitation/reset pages, `docs/api/authentication.md`, `AGENTS.md`, and this progress file.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `npm run lint` passed.
+- `npm run test:auth` passed: 7 unit tests.
+- `npm run build` passed; Next lists `/sign-in` as a static route.
+- Browser verification used intercepted API responses, not real credentials or database writes. It confirmed the page renders, submits a same-origin `POST` with `X-CSRF-Protection: 1` and an `Origin` header, displays the generic invalid-credentials message for a `401`, and displays success while clearing the password field for a valid success response.
+- The temporary local server was stopped. No real sign-in request or email was sent.
+- `git diff --check` passed.
+- Sign-in changes are not yet committed or pushed. The `.env.example` change remains separate and unstaged.

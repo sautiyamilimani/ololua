@@ -152,13 +152,13 @@ Never write planned work as completed work.
 
 ## Current project state
 
-- Stage: 4 - Frontend (only invitation acceptance and password-reset pages approved); Stages 1-3 have approved work.
+- Stage: 4 - Frontend (sign-in, invitation acceptance, and password-reset pages approved); Stages 1-3 have approved work.
 - The project has 28 ERD tables, 13 journaled migrations, and a development seed script; see `PROJECT_PROGRESS.md` for the recorded verification and current database details.
 - The first API endpoint, `GET /api/health`, is a process liveness check only and does not check database readiness.
 - The ERD copy is `olulua-erd`.
 - The sign-in/session/sign-out contract and implementation status are documented in `docs/api/authentication.md` and `PROJECT_PROGRESS.md`.
-- Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The Stage 4 invitation acceptance and password-reset pages are implemented; broader frontend and PWA work is not approved. Outbox sending is explicitly disabled by default.
+- Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The Stage 4 sign-in, invitation acceptance, and password-reset pages are implemented; broader frontend and PWA work is not approved. Outbox sending is explicitly disabled by default.
 - Confirmed invitation rules and implementation boundaries are documented in `docs/api/invitations.md`.
-- Do not expand frontend work beyond the approved invitation acceptance and password-reset pages, or begin PWA work, without further user approval.
-- For a fresh Copilot session/account, read this file, `PROJECT_PROGRESS.md`, and the relevant API contract before acting. The Stage 3 invitation, password-reset, and SMTP-worker baseline was pushed to `main` as commit `d6309942c0a030c1179d12fbd6cd4078b7a072db`; consult `PROJECT_PROGRESS.md` for newer uncommitted changes and verification.
+- Do not expand frontend work beyond the approved sign-in, invitation acceptance, and password-reset pages, or begin PWA work, without further user approval.
+- For a fresh Copilot session/account, read this file, `PROJECT_PROGRESS.md`, and the relevant API contract before acting. The Stage 3 invitation/password-reset/SMTP baseline was pushed as `d6309942c0a030c1179d12fbd6cd4078b7a072db`, and the invitation/reset pages were pushed as `5f8461b9ea8b55fd5765440753970de16f2ed200`. The sign-in page and shared auth shell are newer uncommitted changes; consult `PROJECT_PROGRESS.md` for their verification.
 - The SMTP worker has not sent queued application email. Keep sending disabled until `APP_ORIGIN` points to a reachable deployment and sender deliverability is reviewed. The separate Gmail smoke test landed in Spam; SMTP authentication is not proof of inbox deliverability.
