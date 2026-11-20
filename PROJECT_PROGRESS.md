@@ -25,7 +25,7 @@ Build a reliable Water Services Management Information System for Ololua. Correc
 
 ## 4. Current stage and progress
 
-**Current stage: Stage 3 - Business logic (authentication approved).**
+**Current stage: Stage 4 - Frontend (invitation acceptance and password-reset pages approved).**
 
 Completed in the initial task:
 
@@ -446,7 +446,9 @@ Remaining boundaries at invitation-issuance completion: invitation email deliver
 
 ## 9. Next step
 
-Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. Outbox sending is disabled by default. Do not begin Stage 4 frontend work without explicit approval.
+Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The user approved continuing with the invitation acceptance and password-reset pages; that focused Stage 4 work is complete in section 13. Broader frontend and PWA work is not approved. Outbox sending remains disabled by default.
+
+Next step: review the completed pages with the user and obtain a separate scope/approval before expanding Stage 4. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable application origin and review sender deliverability.
 
 ---
 
@@ -481,7 +483,7 @@ Verification:
 - Added Nodemailer Gmail SMTP transport using `EMAIL` and `GMAIL_APP_PASSWORD`; the app password is stripped of display whitespace and never logged.
 - Added `npm run email:verify-smtp`, which checks Gmail SMTP authentication without sending a message. The configured credentials verified successfully.
 - Added a one-shot `npm run email:process-outbox` worker that processes up to 10 due messages sequentially. It uses `FOR UPDATE SKIP LOCKED`, a two-minute claim lease, exponential retries, terminal failure for invalid payloads/exhausted attempts, and sanitized error storage.
-- Added plain-text invitation and password-reset templates. Tokens are decrypted only while composing the message; links are `/accept-invitation?token=...` and `/reset-password?token=...`. Neither page exists yet.
+- Added plain-text invitation and password-reset templates. Tokens are decrypted only while composing the message; links are `/accept-invitation?token=...` and `/reset-password?token=...`. Neither page existed when this worker was completed; both were implemented later in section 13.
 - Sending is disabled unless `EMAIL_OUTBOX_ENABLED=true`. Remote database sending also requires `EMAIL_OUTBOX_ALLOW_REMOTE_SEND=true`. Neither flag was enabled; the outbox send command was not run and no invitation/reset email was sent by this worker.
 - Delivery is at-least-once: a process crash after SMTP acceptance but before marking a row sent can cause a retry. A scheduler to invoke the one-shot worker is not configured.
 - The user's separate five-message Gmail smoke test was accepted by SMTP but landed in Spam. SMTP success does not ensure inbox placement; sender reputation and SPF/DKIM/DMARC alignment remain to be reviewed. The worker does not attempt to bypass spam filtering.
@@ -502,18 +504,37 @@ Verification:
 - `git diff --check` passed.
 - No SMTP credentials or tokens were printed. No commit or push was made.
 
-Next step: ask the user to explicitly approve Stage 4 before implementing `/accept-invitation` and `/reset-password` pages. If approved, implement only the agreed frontend slice and follow the existing contracts in `docs/api/invitations.md` and `docs/api/password-reset.md`. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable app origin and review sender deliverability. Keep `EMAIL_OUTBOX_ENABLED` false until those routes are usable.
+At worker completion, the next step was to request Stage 4 approval for those pages; that focused work was later completed in section 13. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable app origin and review sender deliverability. Keep `EMAIL_OUTBOX_ENABLED` false until that deployment and deliverability review are complete.
 
 ## 12. Account-switch handoff
 
 This section is the current continuation note for a fresh Copilot session/account. Read `AGENTS.md`, this progress file, and the relevant API contract before making changes; do not rely on the previous conversation being available.
 
-- Current approved stage: Stage 3 - Business logic. Stage 4 frontend work has **not** been approved. Do not start it without the user's explicit approval.
-- The invitation, login/session/logout, password-reset APIs, and one-shot SMTP outbox worker are implemented. The `/accept-invitation` and `/reset-password` frontend pages are not implemented.
-- The SMTP worker has not sent queued application email. `EMAIL_OUTBOX_ENABLED` is intentionally false by default. Do not enable it until both pages exist and `APP_ORIGIN` is reachable. The standalone Gmail test was accepted by SMTP but went to Spam; inbox delivery is unresolved.
+- Current approved scope: Stage 4 - the invitation acceptance and password-reset pages only. Do not expand to other frontend features or PWA work without further approval.
+- The invitation, login/session/logout, and password-reset APIs and the one-shot SMTP outbox worker are implemented. The `/accept-invitation` and `/reset-password` pages are implemented; see section 13.
+- The SMTP worker has not sent queued application email. `EMAIL_OUTBOX_ENABLED` is intentionally false by default. Do not enable it until `APP_ORIGIN` points to a reachable deployment and sender deliverability is reviewed. The standalone Gmail test was accepted by SMTP but went to Spam; inbox delivery is unresolved.
 - Migration `0012_add_invitation_customer_targets.sql` was applied to the loopback development database; the Drizzle journal has 13 entries. No production migration or production data change was made.
-- The implementation was committed and pushed to `origin/main` as `d6309942c0a030c1179d12fbd6cd4078b7a072db`. `.env` was not staged. The repo was clean after the push.
+- The Stage 3 implementation was committed and pushed to `origin/main` as `d6309942c0a030c1179d12fbd6cd4078b7a072db`. `.env` was not staged and the repo was clean after that push. The Stage 4 page changes in section 13 are later and currently uncommitted.
 - Verification recorded for this implementation: TypeScript, lint, auth unit/integration tests, email outbox integration tests, production build, Drizzle generation, SMTP credential verification (no email sent), and production dependency audit passed. See section 11 for exact commands and results; do not rerun SMTP sending as a handoff check.
 - Before future database changes, confirm the supplied ERD is available; it was provided as a conversation attachment and is not stored in the repository. Do not infer missing schema/business rules.
 
-Recommended next action: wait for explicit Stage 4 approval. Once approved, implement the narrowly agreed invitation/reset pages, validate their interactions against the existing API contracts, then separately review email deliverability before enabling queued sends.
+Recommended next action: review the two completed pages and obtain the user's separate approval before taking on any other frontend or PWA feature.
+
+## 13. Stage 4 invitation and password-reset pages: complete
+
+- The user said “lets just continue” after the handoff's proposed next step, which was taken as approval for the focused invitation-acceptance and password-reset pages only. No dashboard, general navigation, or PWA work was started.
+- Added `/accept-invitation` and `/reset-password`. Both read the opaque token from `searchParams`, reject missing/malformed token shapes before showing a form, and submit to their existing API contracts.
+- Added one shared password form with confirmation, a minimum-length hint (8 characters generally; 12 for staff admins/superadmins), disabled/loading state, user-readable validation/invalid-link/network/server errors, and success messages.
+- The form sends JSON with the CSRF marker and same-origin credentials, uses `no-store` and `no-referrer` request settings, does not persist the token, and removes the query string from browser history after success. Both pages are marked `no-referrer` and `noindex`.
+- No changes were made to `session.ts`, API behavior, database schema, migrations, production data, or email-sending configuration. No email was sent. Keep `EMAIL_OUTBOX_ENABLED` false until `APP_ORIGIN` points to a reachable deployment and sender deliverability is reviewed.
+- Files changed: `src/app/accept-invitation/page.tsx`, `src/app/reset-password/page.tsx`, `src/components/auth/credential-token-form.tsx`, `docs/api/invitations.md`, `docs/api/password-reset.md`, `AGENTS.md`, and this progress file.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `npm run lint` passed.
+- `npm run test:auth` passed: 7 unit tests.
+- `npm run build` passed. Next lists both pages as partially prerendered, with token-dependent content streamed inside Suspense boundaries.
+- Browser verification against a temporary local production server confirmed the reset form renders for a valid-shape token, malformed reset links show an error without a form, mismatched passwords produce the client-side error, and the invitation form renders. The temporary server was stopped.
+- `git diff --check` passed.
+- Changes are not yet committed or pushed.

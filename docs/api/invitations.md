@@ -1,6 +1,6 @@
 # Invitation acceptance and password setup API contract
 
-**Status:** Acceptance, customer-target schema support, invitation issuance, and SMTP outbox delivery are implemented. The invitation acceptance page is not implemented.
+**Status:** Acceptance, customer-target schema support, invitation issuance, SMTP outbox delivery, and the invitation acceptance page are implemented.
 
 ## Scope and dependencies
 
@@ -8,7 +8,7 @@ This contract covers staff/customer invitation issuance, initial-user acceptance
 
 The invitation must already exist and be linked to a user and role. Its raw bearer token is supplied by the invitation flow; the database stores only `invitations.token_hash`. Use a 32-byte cryptographically random token encoded as 43 base64url characters. The request does not accept a user ID, role ID, email, or account type from the client; account type comes from the linked user record.
 
-The invitation email link is `${APP_ORIGIN}/accept-invitation?token=...`. The worker constructs it from the origin, the encrypted token, and the fixed route path. The page itself is not implemented, so do not enable delivery for real invitees until the approved frontend stage provides that route.
+The invitation email link is `${APP_ORIGIN}/accept-invitation?token=...`. The worker constructs it from the origin, the encrypted token, and the fixed route path. The page exists in the application, but do not enable delivery for real invitees until `APP_ORIGIN` points to a reachable deployment and sender deliverability has been reviewed.
 
 ## `POST /api/auth/invitations/accept`
 
@@ -131,7 +131,7 @@ The customer target is stored on `invitations.customer_id` so acceptance can cre
 
 `EMAIL_OUTBOX_ENCRYPTION_KEY` must be configured as a base64-encoded 32-byte key. Generate a distinct value for each environment with `openssl rand -base64 32`. Configure `EMAIL` and `GMAIL_APP_PASSWORD` for Gmail SMTP. The password must be a Google App Password, not the account password.
 
-Run `npm run email:verify-smtp` to check SMTP authentication without sending an email. `npm run email:process-outbox` sends up to 10 due messages, but refuses to send unless `EMAIL_OUTBOX_ENABLED=true`; a non-loopback database additionally requires `EMAIL_OUTBOX_ALLOW_REMOTE_SEND=true`. Keep sending disabled until the invitation and reset pages are available. The worker claims messages with row locks, retries transient SMTP failures with exponential backoff up to each row's `max_attempts`, and marks unsupported or exhausted messages failed. It does not log tokens or message contents. Delivery is at-least-once: a process crash after the SMTP server accepts a message but before the database marks it sent can result in a duplicate retry.
+Run `npm run email:verify-smtp` to check SMTP authentication without sending an email. `npm run email:process-outbox` sends up to 10 due messages, but refuses to send unless `EMAIL_OUTBOX_ENABLED=true`; a non-loopback database additionally requires `EMAIL_OUTBOX_ALLOW_REMOTE_SEND=true`. Keep sending disabled until `APP_ORIGIN` points to a reachable deployment and sender deliverability has been reviewed. The worker claims messages with row locks, retries transient SMTP failures with exponential backoff up to each row's `max_attempts`, and marks unsupported or exhausted messages failed. It does not log tokens or message contents. Delivery is at-least-once: a process crash after the SMTP server accepts a message but before the database marks it sent can result in a duplicate retry.
 
 Successful SMTP submission does not guarantee inbox placement. The Gmail SMTP smoke test was accepted by Gmail, but the user reported the messages arrived in Spam. Review sender reputation and SPF/DKIM/DMARC alignment for the sending identity; do not treat SMTP authentication as a deliverability guarantee.
 
