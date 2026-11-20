@@ -3,7 +3,13 @@ import { NextResponse } from "next/server";
 type ApiErrorCode =
   | "VALIDATION_ERROR"
   | "INVALID_CREDENTIALS"
+  | "UNAUTHENTICATED"
+  | "FORBIDDEN"
   | "INVITATION_INVALID"
+  | "INVITATION_CONFLICT"
+  | "RESET_TOKEN_INVALID"
+  | "RATE_LIMITED"
+  | "NOT_FOUND"
   | "CSRF_FAILED"
   | "INTERNAL_ERROR";
 

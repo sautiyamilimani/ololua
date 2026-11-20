@@ -9,6 +9,15 @@ export function isAccountType(value: string): value is AccountType {
   return value === "staff" || value === "customer";
 }
 
+export function isRoleAllowedForAccountType(
+  accountType: AccountType,
+  roleKey: string,
+): boolean {
+  return accountType === "customer"
+    ? roleKey === "customer"
+    : roleKey !== "customer";
+}
+
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;

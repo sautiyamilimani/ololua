@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   accountSecurityEvents,
+  customerUserAccess,
+  customers,
   invitations,
   roles,
   sessions,
@@ -14,6 +16,7 @@ import {
   getPasswordMinimumLength,
   getSessionPolicy,
   isAccountType,
+  isRoleAllowedForAccountType,
   type AccountType,
   type SessionPolicy,
 } from "./policy";
@@ -88,6 +91,7 @@ export async function acceptInvitation(
       invitationExpiresAt: invitations.expiresAt,
       invitationRevokedAt: invitations.revokedAt,
       invitationRoleKey: roles.roleKey,
+      customerId: invitations.customerId,
       userEmail: users.email,
       userFullName: users.fullName,
       userAccountType: users.accountType,
@@ -119,7 +123,14 @@ export async function acceptInvitation(
     snapshot.userStatus !== "invited" ||
     snapshot.userPasswordHash !== null ||
     !emailsMatch(snapshot.userEmail, snapshot.invitedEmail) ||
-    !isAccountType(snapshot.userAccountType)
+    !isAccountType(snapshot.userAccountType) ||
+    !isRoleAllowedForAccountType(
+      snapshot.userAccountType,
+      snapshot.invitationRoleKey,
+    ) ||
+    (snapshot.userAccountType === "customer"
+      ? snapshot.customerId === null
+      : snapshot.customerId !== null)
   ) {
     return { kind: "invalid" };
   }
@@ -148,6 +159,19 @@ export async function acceptInvitation(
   const normalizedUserAgent = userAgent?.slice(0, 512) ?? null;
 
   return db.transaction(async (transaction) => {
+    if (snapshot.customerId !== null) {
+      const [customer] = await transaction
+        .select({ id: customers.id })
+        .from(customers)
+        .where(eq(customers.id, snapshot.customerId))
+        .limit(1)
+        .for("update");
+
+      if (!customer) {
+        return { kind: "invalid" };
+      }
+    }
+
     const [invitation] = await transaction
       .select({
         id: invitations.id,
@@ -158,6 +182,7 @@ export async function acceptInvitation(
         status: invitations.status,
         expiresAt: invitations.expiresAt,
         revokedAt: invitations.revokedAt,
+        customerId: invitations.customerId,
       })
       .from(invitations)
       .where(
@@ -187,7 +212,11 @@ export async function acceptInvitation(
       return { kind: "invalid" };
     }
 
-    if (invitation.status !== "pending" || invitation.revokedAt !== null) {
+    if (
+      invitation.status !== "pending" ||
+      invitation.revokedAt !== null ||
+      invitation.customerId !== snapshot.customerId
+    ) {
       return { kind: "invalid" };
     }
 
@@ -221,7 +250,13 @@ export async function acceptInvitation(
       .where(eq(roles.id, invitation.roleId))
       .limit(1);
 
-    if (!invitationRole) {
+    if (
+      !invitationRole ||
+      !isRoleAllowedForAccountType(user.accountType, invitationRole.roleKey) ||
+      (user.accountType === "customer"
+        ? invitation.customerId === null
+        : invitation.customerId !== null)
+    ) {
       return { kind: "invalid" };
     }
 
@@ -242,6 +277,23 @@ export async function acceptInvitation(
       return { kind: "password-policy" };
     }
 
+    if (invitation.customerId !== null) {
+      const [activeAccess] = await transaction
+        .select({ id: customerUserAccess.id })
+        .from(customerUserAccess)
+        .where(
+          and(
+            eq(customerUserAccess.customerId, invitation.customerId),
+            isNull(customerUserAccess.revokedAt),
+          ),
+        )
+        .limit(1);
+
+      if (activeAccess) {
+        return { kind: "invalid" };
+      }
+    }
+
     const sessionPolicy = getSessionPolicy(user.accountType, [...roleKeys]);
     const expiresAt = new Date(now.getTime() + sessionPolicy.idleTimeoutMs);
 
@@ -250,6 +302,15 @@ export async function acceptInvitation(
       roleId: invitation.roleId,
       assignedBy: invitation.invitedBy,
     }).onConflictDoNothing();
+
+    if (invitation.customerId !== null) {
+      await transaction.insert(customerUserAccess).values({
+        userId: user.id,
+        customerId: invitation.customerId,
+        grantedBy: invitation.invitedBy,
+        createdAt: now,
+      });
+    }
 
     await transaction
       .update(users)

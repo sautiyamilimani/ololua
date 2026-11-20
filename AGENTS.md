@@ -153,10 +153,10 @@ Never write planned work as completed work.
 ## Current project state
 
 - Stage: 3 - Business logic (authentication approved); Stages 1 and 2 have approved work.
-- The project has 28 ERD tables, 12 journaled migrations, and a development seed script; see `PROJECT_PROGRESS.md` for the recorded verification and current database details.
+- The project has 28 ERD tables, 13 journaled migrations, and a development seed script; see `PROJECT_PROGRESS.md` for the recorded verification and current database details.
 - The first API endpoint, `GET /api/health`, is a process liveness check only and does not check database readiness.
 - The ERD copy is `olulua-erd`.
 - The sign-in/session/sign-out contract and implementation status are documented in `docs/api/authentication.md` and `PROJECT_PROGRESS.md`.
-- Stage 3 login/session/logout and invitation-acceptance/password-setup endpoints are implemented; role/permission authorization is not.
-- The invitation acceptance contract and its remaining issuance/customer-linkage boundaries are documented in `docs/api/invitations.md`.
+- Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The invitation and reset frontend pages are not implemented; outbox sending is explicitly disabled by default.
+- Confirmed invitation rules and implementation boundaries are documented in `docs/api/invitations.md`.
 - Do not begin frontend or PWA work without their approved stage boundary.

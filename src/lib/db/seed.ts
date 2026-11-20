@@ -30,12 +30,15 @@ const db = drizzle(pool, { schema });
 async function seed() {
   await db.insert(roles).values([
     { roleKey: "admin", displayName: "Administrator", isSystemRole: true },
+    { roleKey: "customer", displayName: "Customer", isSystemRole: true },
+    { roleKey: "superadmin", displayName: "Superadministrator", isSystemRole: true },
     { roleKey: "billing_officer", displayName: "Billing Officer", isSystemRole: false },
     { roleKey: "meter_reader", displayName: "Meter Reader", isSystemRole: false },
   ]).onConflictDoNothing();
 
   await db.insert(permissions).values([
     { permissionKey: "customers.manage", displayName: "Manage Customers", module: "customers" },
+    { permissionKey: "invitations.create_customer", displayName: "Invite Customer Users", module: "invitations" },
     { permissionKey: "readings.submit", displayName: "Submit Meter Readings", module: "meter_readings" },
     { permissionKey: "payments.record", displayName: "Record Payments", module: "payments" },
   ]).onConflictDoNothing();

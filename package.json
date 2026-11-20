@@ -12,14 +12,18 @@
         "db:push": "drizzle-kit push",
         "db:studio": "drizzle-kit studio",
         "db:seed": "tsx src/lib/db/seed.ts",
+        "email:process-outbox": "tsx src/scripts/process-email-outbox.ts",
+        "email:verify-smtp": "tsx src/scripts/verify-email-smtp.ts",
+        "test:email:integration": "tsx --test src/lib/email/outbox.integration.test.ts",
         "test:auth": "tsx --test src/lib/auth/policies.test.ts src/lib/auth/csrf.test.ts src/lib/auth/password.test.ts",
-        "test:auth:integration": "tsx --test src/lib/auth/accept-invitation.integration.test.ts"
+        "test:auth:integration": "tsx --test src/lib/auth/accept-invitation.integration.test.ts src/lib/auth/issue-invitation.integration.test.ts src/lib/auth/password-reset.integration.test.ts src/lib/email/outbox.integration.test.ts"
     },
     "dependencies": {
         "@neondatabase/serverless": "^1.2.1",
         "dotenv": "^18.0.10",
         "drizzle-orm": "^0.45.4",
         "next": "16.4.6",
+        "nodemailer": "^10.6.1",
         "pg": "^8.23.1",
         "react": "19.3.0",
         "react-dom": "19.3.0"

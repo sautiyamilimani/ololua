@@ -1,12 +1,14 @@
 # Invitation acceptance and password setup API contract
 
-**Status:** Policies confirmed; `POST /api/auth/invitations/accept` is implemented.
+**Status:** Acceptance, customer-target schema support, invitation issuance, and SMTP outbox delivery are implemented. The invitation acceptance page is not implemented.
 
 ## Scope and dependencies
 
-This contract covers accepting an existing staff or customer invitation and choosing the user's initial password. It does not cover creating/revoking invitations, sending invitation email, customer self-registration, or password reset.
+This contract covers staff/customer invitation issuance, initial-user acceptance and password setup. The API queues email in `email_outbox`; a separate worker sends due messages asynchronously. Customer self-registration and password reset are outside this contract.
 
 The invitation must already exist and be linked to a user and role. Its raw bearer token is supplied by the invitation flow; the database stores only `invitations.token_hash`. Use a 32-byte cryptographically random token encoded as 43 base64url characters. The request does not accept a user ID, role ID, email, or account type from the client; account type comes from the linked user record.
+
+The invitation email link is `${APP_ORIGIN}/accept-invitation?token=...`. The worker constructs it from the origin, the encrypted token, and the fixed route path. The page itself is not implemented, so do not enable delivery for real invitees until the approved frontend stage provides that route.
 
 ## `POST /api/auth/invitations/accept`
 
@@ -76,19 +78,62 @@ The row lock makes concurrent acceptance attempts safe: only one can change a pe
 
 ## Confirmed decisions
 
+### Acceptance
+
 1. A valid invitation verifies the user's email.
 2. Acceptance changes the invited user to `active`.
-3. Acceptance assigns the invitation role when applicable.
+3. Acceptance assigns the invitation role, subject to the confirmed account-type boundary: staff roles for staff accounts and only `customer` for customer accounts.
 4. Acceptance creates a session and sets the session cookie; no separate sign-in is required.
-5. Invitations may target both `staff` and `customer` users. Password minimums and session timeouts follow `authentication.md`.
+5. Password minimums and session timeouts follow `authentication.md`.
 
-## Remaining boundaries
+### Issuance
 
-The ERD requires an invitation role but does not define which roles are valid for each account type. The current seed contains `admin`, `billing_officer`, and `meter_reader`, but no customer role or role/account-type compatibility rule. The acceptance handler applies the invitation's required role for both account types; invitation issuance must ensure that the assigned role is approved.
+1. Only `admin` and `superadmin` may invite staff accounts.
+2. `admin` and `superadmin` may invite customer accounts by default. Office/billing staff require an explicit `invitations.create_customer` permission grant; the permission is not granted to `billing_officer` by development seed data.
+3. Staff accounts may receive staff roles only. Customer accounts may receive only the `customer` role.
+4. A customer record must exist before a customer invitation is sent.
+5. A customer record may have only one active linked user. Create the `customer_user_access` link on acceptance, not issuance. This does not limit that customer to one meter/service account.
+6. Invitations expire 72 hours after issuance.
+7. There may be only one pending invitation per target email and only one pending invitation per customer.
+8. Resending for the same target revokes/invalidates the prior pending token and issues a fresh 72-hour token. Expired invitations cannot be accepted and require a new invitation or resend.
 
-The invitation table does not identify a customer record. A customer invitation therefore does not create `customer_user_access`; that mapping must already exist or be handled by a separate authorized workflow.
+### Customer login versus service accounts
 
-Invitation issuance must ensure the recipient, account type, role, and any customer-access mapping are correct. That is a separate authorized operation and is not implemented by this acceptance endpoint.
+The one-to-one limit applies to a `customers` master record and its portal user; it does not limit the customer's services. One `customers` row can still have multiple `customer_meter_accounts` rows, covering different meters, properties, or service variants. Those accounts remain associated with the same customer and are accessed through that customer's one portal login. Separately, `users.email` is already case-insensitively unique, so one email cannot create multiple user records with different credentials.
+
+## Invitation issuance API contract
+
+`POST /api/auth/invitations` requires JSON, the standard CSRF headers, and an active staff session. Its request body is capped at 16 KiB. It accepts one of these request forms:
+
+```json
+{
+  "accountType": "staff",
+  "email": "staff@example.com",
+  "fullName": "Staff Name",
+  "roleKey": "meter_reader"
+}
+```
+
+```json
+{
+  "accountType": "customer",
+  "customerId": "customer-uuid"
+}
+```
+
+For a customer invitation, the recipient email and display name come from the existing customer record, and the API fixes the role to `customer`. Staff email, name, and a valid staff role are supplied by the authorized caller. The API does not return the raw invitation token; it writes the token to `email_outbox.secret_payload_encrypted` using AES-256-GCM and returns `202` with the invitation ID, expiry, and an email-queued indicator.
+
+Responses use the common no-store envelope: `202` when queued, `400 VALIDATION_ERROR` for malformed input or role choice, `401 UNAUTHENTICATED` for a missing/invalid session, `403 FORBIDDEN` when the actor lacks authority, `404 NOT_FOUND` when the customer record is absent, `409 INVITATION_CONFLICT` when an account, active customer link, or conflicting pending invitation exists, and `500 INTERNAL_ERROR` for unexpected failures.
+
+The authenticated issuer's session and user are revalidated in the transaction. Admin/superadmin roles authorize staff and customer invitations; other staff can issue customer invitations only with the dedicated permission. Resending revokes the matching pending invitation and marks its still-queued email as failed before inserting a replacement. User, invitation, outbox, and security-event changes commit together.
+
+The customer target is stored on `invitations.customer_id` so acceptance can create `customer_user_access` atomically. Partial unique indexes allow only one pending invitation per email and one per customer, and one active user link per customer. A revoked access link remains in history while allowing a later link.
+
+`EMAIL_OUTBOX_ENCRYPTION_KEY` must be configured as a base64-encoded 32-byte key. Generate a distinct value for each environment with `openssl rand -base64 32`. Configure `EMAIL` and `GMAIL_APP_PASSWORD` for Gmail SMTP. The password must be a Google App Password, not the account password.
+
+Run `npm run email:verify-smtp` to check SMTP authentication without sending an email. `npm run email:process-outbox` sends up to 10 due messages, but refuses to send unless `EMAIL_OUTBOX_ENABLED=true`; a non-loopback database additionally requires `EMAIL_OUTBOX_ALLOW_REMOTE_SEND=true`. Keep sending disabled until the invitation and reset pages are available. The worker claims messages with row locks, retries transient SMTP failures with exponential backoff up to each row's `max_attempts`, and marks unsupported or exhausted messages failed. It does not log tokens or message contents. Delivery is at-least-once: a process crash after the SMTP server accepts a message but before the database marks it sent can result in a duplicate retry.
+
+Successful SMTP submission does not guarantee inbox placement. The Gmail SMTP smoke test was accepted by Gmail, but the user reported the messages arrived in Spam. Review sender reputation and SPF/DKIM/DMARC alignment for the sending identity; do not treat SMTP authentication as a deliverability guarantee.
 
 ## Verification
 

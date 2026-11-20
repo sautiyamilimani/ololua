@@ -419,26 +419,87 @@ Verification:
 - `npm run build` passed; Next lists `/api/auth/invitations/accept` as a dynamic route.
 - The integration suite verified temporary test users were removed.
 
-Known boundaries:
+**Stage 3 customer-targeted invitation issuance: complete**
 
-- Invitation issuance/email delivery, password reset, and role/permission authorization remain unimplemented.
-- The ERD requires an invitation role but defines neither role/account-type compatibility nor a customer role. The endpoint assigns the invitation's required role for both account types; invitation issuance must restrict role choices appropriately.
-- The invitation has no customer ID, so customer access mapping must already exist or be handled separately.
-- No per-IP/global auth rate limit has been implemented.
+1. Added `invitations.customer_id`, a partial unique index for pending invitations by normalized target email and another by customer, and a partial unique index allowing one active `customer_user_access` link per customer while preserving revoked history.
+2. Added development seed roles `customer` and `superadmin`, plus the `invitations.create_customer` permission. The permission is not granted to `billing_officer`.
+3. Implemented `POST /api/auth/invitations`. Staff invitations are restricted to admin/superadmin; customer invitations are allowed to admin/superadmin or staff with the dedicated permission. Role/account-type boundaries are validated.
+4. Customer invitations require an existing customer with no active portal-user link. The user link is created during acceptance. One portal login per customer does not limit the customer's multiple meter/service accounts.
+5. Issuance locks/revalidates relevant rows, serializes invitations by normalized email, revokes prior pending invitations on resend, and transactionally records the invitation, encrypted email-outbox payload, and security event. Invitation tokens are not returned.
+6. Email is queued in `email_outbox` using AES-256-GCM encryption. No email delivery worker/provider exists, so queued is not delivered.
+7. Applied and verified migration `0012_add_invitation_customer_targets.sql` on the loopback development database. The Drizzle journal now has 13 entries. `npm run db:generate` reports no schema changes.
+8. Updated `docs/api/invitations.md`, this progress handoff, and `AGENTS.md`.
 
-**Recommended next task:** Define the invitation issuance contract, including allowed account-type/role combinations and how customer portal access is linked, before implementing invitation creation or email delivery.
+Verification for the completed invitation work:
 
-**Service_types table task: in progress**
+- `npx tsc --noEmit` passed.
+- `npm run lint` passed.
+- `npm run test:auth` passed: 7 tests.
+- `npm run test:auth:integration` passed: 13 local PostgreSQL integration tests, including acceptance, issuance, resend, authorization, encryption, concurrency, and fixture cleanup.
+- `npm run build` passed; Next.js lists the issuance and acceptance routes as dynamic.
+- `npm run db:generate` passed with “No schema changes.”
+- `git diff --check` passed. No commit or push was requested.
 
-- Adding only `src/lib/db/schema/service-types.ts` and exporting it.
-- In scope: unique code/name, nullable description, ACTIVE/INACTIVE status check, and timestamps.
-- `AGENTS.md` documentation task: file read back and contains the required project stages, database safeguards, verification rules, communication format, and current-state handoff.
-- Drizzle migration journal reconciliation is complete for migrations 0000 and 0001; future migrations should still be reviewed before application.
+Confirmed invitation decisions: one user account per customer master record; one email cannot have multiple user records because `users.email` is case-insensitively unique; customer records may retain multiple meter/service accounts under the same portal login. Invitations expire after 72 hours, with at most one pending per target email and per customer. Resend invalidates the previous pending invite. No separate authenticated repeat-acceptance flow is required.
+
+Remaining boundaries at invitation-issuance completion: invitation email delivery and role/permission management beyond invitation authorization were not implemented. Password reset is now covered in section 10. No production migration or production data was touched. No per-IP/global login rate limit has been implemented.
 
 ## 9. Next step
 
-Stage 1 database engineering is complete; Stage 2 API work and Stage 3 sign-in/session/logout plus invitation acceptance are implemented. Define and approve the invitation issuance/customer-linkage rules before building invitation creation or delivery.
+Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. Outbox sending is disabled by default. Do not begin Stage 4 frontend work without explicit approval.
 
 ---
 
 Update the current stage, completed work, files changed, actual verification results, decisions, blockers, and one next step after every approved task.
+
+## 10. Password-reset API: complete
+
+- Implemented `POST /api/auth/password-reset/request` and `POST /api/auth/password-reset/complete`; the approved contract is in `docs/api/password-reset.md`.
+- Reset requests accept only syntactically valid emails. Eligible accounts are active, verified, and already password-provisioned. All valid addresses receive the same generic `202`; email throttling suppresses additional outbox messages without changing that response.
+- Enforced per-email throttling of 3 requests per 60 minutes and per-IP throttling of 10 requests per 15 minutes. IP throttling returns `429 RATE_LIMITED` and `Retry-After`. Bucket keys are hashed in `rate_limits`.
+- Reset tokens are random, single-use, expire after 60 minutes, and are stored only as SHA-256 hashes. Raw tokens are encrypted in email outbox records. A new request invalidates earlier unused tokens and fails their queued messages.
+- Completion revalidates the user and token in a transaction, enforces the current role-based password minimum, marks the token used, invalidates other tokens, changes the password, clears failed-login/lockout fields, revokes active sessions, and writes a security event. It does not create a session.
+- The approved link is `${APP_ORIGIN}/reset-password?token=...`. The reset page remains unimplemented; see section 11 for the outbox worker state.
+- Configured a local-only `EMAIL_OUTBOX_ENCRYPTION_KEY` in ignored `.env`; its value was not displayed or committed. No database migration or production data change was needed.
+- The standalone Gmail SMTP test accepted five plain messages, but the user reported they landed in Spam. See section 11 for the app worker and remaining deliverability limitations.
+- Expired `rate_limits` rows need a periodic cleanup task; none is implemented.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `npm run lint` passed.
+- `npx tsx --test src/lib/auth/password-reset.integration.test.ts` passed: 8 local PostgreSQL integration tests, including route CSRF/envelopes, generic responses, encrypted token storage, both throttles, reissue invalidation, completion, lockout/session updates, role password minimum, concurrent use, and fixture cleanup.
+- `npm run test:auth` passed: 7 unit tests.
+- `npm run test:auth:integration` passed: 21 PostgreSQL integration tests across invitation and password-reset flows.
+- `npm run build` passed; Next lists both password-reset handlers as dynamic routes.
+- `npm run db:generate` passed with no schema changes; no migration was needed.
+- `git diff --check` passed. `.env` remains ignored; the local outbox encryption key is not tracked.
+- No SMTP credentials or reset tokens were printed. No commit or push was made.
+
+## 11. SMTP email outbox worker: complete
+
+- Added Nodemailer Gmail SMTP transport using `EMAIL` and `GMAIL_APP_PASSWORD`; the app password is stripped of display whitespace and never logged.
+- Added `npm run email:verify-smtp`, which checks Gmail SMTP authentication without sending a message. The configured credentials verified successfully.
+- Added a one-shot `npm run email:process-outbox` worker that processes up to 10 due messages sequentially. It uses `FOR UPDATE SKIP LOCKED`, a two-minute claim lease, exponential retries, terminal failure for invalid payloads/exhausted attempts, and sanitized error storage.
+- Added plain-text invitation and password-reset templates. Tokens are decrypted only while composing the message; links are `/accept-invitation?token=...` and `/reset-password?token=...`. Neither page exists yet.
+- Sending is disabled unless `EMAIL_OUTBOX_ENABLED=true`. Remote database sending also requires `EMAIL_OUTBOX_ALLOW_REMOTE_SEND=true`. Neither flag was enabled; the outbox send command was not run and no invitation/reset email was sent by this worker.
+- Delivery is at-least-once: a process crash after SMTP acceptance but before marking a row sent can cause a retry. A scheduler to invoke the one-shot worker is not configured.
+- The user's separate five-message Gmail smoke test was accepted by SMTP but landed in Spam. SMTP success does not ensure inbox placement; sender reputation and SPF/DKIM/DMARC alignment remain to be reviewed. The worker does not attempt to bypass spam filtering.
+- Updated invitation/reset documentation and `.env.example`. No database migration or production data change was needed.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `npm run lint` passed.
+- `npm run test:email:integration` passed: 5 loopback PostgreSQL tests using a fake sender, covering invitation/reset rendering, status updates, retries, terminal failures, concurrent claims, and fixture cleanup.
+- `npm run email:verify-smtp` passed without sending email.
+- `npm run test:auth` passed: 7 unit tests.
+- `npm run test:auth:integration` passed: 26 tests across invitation, password reset, and outbox processing.
+- `npm run build` passed; the Next.js API routes compile.
+- `npm run db:generate` passed with no schema changes; no migration was needed.
+- `npm audit --omit=dev` reported 0 production vulnerabilities.
+- `npm run email:process-outbox` was verified to refuse sending unless `EMAIL_OUTBOX_ENABLED=true`; no real outbox message was sent.
+- `git diff --check` passed.
+- No SMTP credentials or tokens were printed. No commit or push was made.
+
+Next step: request explicit Stage 4 approval before implementing `/accept-invitation` and `/reset-password` pages. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable app origin and review sender deliverability. Keep `EMAIL_OUTBOX_ENABLED` false until those routes are usable.

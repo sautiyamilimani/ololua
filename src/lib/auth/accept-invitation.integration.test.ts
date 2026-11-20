@@ -7,6 +7,9 @@ import { POST as acceptInvitationRoute } from "@/app/api/auth/invitations/accept
 import { db } from "@/lib/db";
 import {
   accountSecurityEvents,
+  customerUserAccess,
+  customers,
+  emailOutbox,
   invitations,
   roles,
   sessions,
@@ -22,6 +25,7 @@ type InvitationFixture = {
   userId: string;
   email: string;
   token: string;
+  customerId: string | null;
 };
 
 function assertLocalDatabase(): void {
@@ -52,38 +56,70 @@ async function createInvitationFixture(
   const userId = randomUUID();
   const email = `invitation-test-${userId}@example.test`;
   const token = createOpaqueToken();
-
-  await db.insert(users).values({
-    id: userId,
-    fullName: "Invitation Integration Test",
-    email,
-    accountType,
-    status: "invited",
-  });
+  const customerId = accountType === "customer" ? randomUUID() : null;
 
   try {
+    if (customerId !== null) {
+      await db.insert(customers).values({
+        id: customerId,
+        customerNumber: `TEST-${userId.slice(0, 12)}`,
+        customerType: "individual",
+        fullName: "Invitation Integration Test",
+        phone: "0700000000",
+        email,
+        status: "active",
+      });
+    }
+
+    await db.insert(users).values({
+      id: userId,
+      fullName: "Invitation Integration Test",
+      email,
+      accountType,
+      status: "invited",
+    });
+
     await db.insert(invitations).values({
       userId,
       roleId: role.id,
+      customerId,
       invitedEmail: email,
       tokenHash: hashOpaqueToken(token),
       status: "pending",
       expiresAt,
     });
   } catch (error) {
+    await db
+      .delete(invitations)
+      .where(eq(invitations.userId, userId));
     await db.delete(users).where(eq(users.id, userId));
+    if (customerId !== null) {
+      await db.delete(customers).where(eq(customers.id, customerId));
+    }
     throw error;
   }
 
-  return { userId, email, token };
+  return { userId, email, token, customerId };
 }
 
 async function removeInvitationFixture(userId: string): Promise<void> {
   await db.delete(accountSecurityEvents).where(eq(accountSecurityEvents.userId, userId));
   await db.delete(sessions).where(eq(sessions.userId, userId));
+  await db.delete(emailOutbox).where(eq(emailOutbox.recipientUserId, userId));
+  await db.delete(customerUserAccess).where(eq(customerUserAccess.userId, userId));
   await db.delete(invitations).where(eq(invitations.userId, userId));
   await db.delete(userRoles).where(eq(userRoles.userId, userId));
+  const [user] = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
   await db.delete(users).where(eq(users.id, userId));
+  if (user?.email.startsWith("invitation-test-")) {
+    await db
+      .delete(customers)
+      .where(eq(customers.email, user.email));
+  }
 }
 
 async function postAcceptance(token: string, password: string): Promise<Response> {
@@ -167,8 +203,8 @@ test("staff invitation acceptance activates the account and sets a session cooki
   }
 });
 
-test("customer invitation acceptance uses the customer session lifetime", async () => {
-  const fixture = await createInvitationFixture("customer", "meter_reader");
+test("customer invitation acceptance creates access and uses the customer session lifetime", async () => {
+  const fixture = await createInvitationFixture("customer", "customer");
 
   try {
     const response = await postAcceptance(fixture.token, "customer-pass-123");
@@ -187,7 +223,82 @@ test("customer invitation acceptance uses the customer session lifetime", async 
       session.idleExpiresAt.getTime() - session.createdAt.getTime(),
       30 * 24 * 60 * 60 * 1000,
     );
+
+    const [access] = await db
+      .select({
+        customerId: customerUserAccess.customerId,
+        revokedAt: customerUserAccess.revokedAt,
+      })
+      .from(customerUserAccess)
+      .where(eq(customerUserAccess.userId, fixture.userId))
+      .limit(1);
+    assert.equal(access?.customerId, fixture.customerId);
+    assert.equal(access?.revokedAt, null);
   } finally {
+    await removeInvitationFixture(fixture.userId);
+  }
+});
+
+test("acceptance rejects invitation roles that do not match the account type", async () => {
+  const customerWithStaffRole = await createInvitationFixture("customer", "meter_reader");
+
+  try {
+    const response = await postAcceptance(
+      customerWithStaffRole.token,
+      "customer-pass-123",
+    );
+    assert.equal(response.status, 401);
+  } finally {
+    await removeInvitationFixture(customerWithStaffRole.userId);
+  }
+
+  const staffWithCustomerRole = await createInvitationFixture("staff", "customer");
+
+  try {
+    const response = await postAcceptance(
+      staffWithCustomerRole.token,
+      "staff-pass-123",
+    );
+    assert.equal(response.status, 401);
+  } finally {
+    await removeInvitationFixture(staffWithCustomerRole.userId);
+  }
+});
+
+test("customer acceptance fails if the customer already has an active linked user", async () => {
+  const fixture = await createInvitationFixture("customer", "customer");
+  assert.ok(fixture.customerId);
+  const existingUserId = randomUUID();
+
+  try {
+    await db.insert(users).values({
+      id: existingUserId,
+      fullName: "Existing Customer Portal User",
+      email: `invitation-test-existing-${existingUserId}@example.test`,
+      accountType: "customer",
+      status: "active",
+      emailVerifiedAt: new Date(),
+    });
+    await db.insert(customerUserAccess).values({
+      userId: existingUserId,
+      customerId: fixture.customerId,
+    });
+
+    const response = await postAcceptance(fixture.token, "customer-pass-123");
+    assert.equal(response.status, 401);
+
+    const [unchangedUser] = await db
+      .select({ status: users.status, passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, fixture.userId))
+      .limit(1);
+    assert.equal(unchangedUser?.status, "invited");
+    assert.equal(unchangedUser?.passwordHash, null);
+  } finally {
+    await db
+      .delete(customerUserAccess)
+      .where(eq(customerUserAccess.userId, existingUserId));
+    await db.delete(users).where(eq(users.id, existingUserId));
     await removeInvitationFixture(fixture.userId);
   }
 });
@@ -300,6 +411,11 @@ test("invitation integration fixtures are removed after the tests", async () => 
     .select({ id: users.id })
     .from(users)
     .where(like(users.email, "invitation-test-%@example.test"));
+  const remainingCustomers = await db
+    .select({ id: customers.id })
+    .from(customers)
+    .where(like(customers.customerNumber, "TEST-%"));
 
   assert.equal(remainingUsers.length, 0);
+  assert.equal(remainingCustomers.length, 0);
 });

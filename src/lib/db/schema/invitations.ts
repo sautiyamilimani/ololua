@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { customers } from "./customers";
 import { roles } from "./roles";
 import { users } from "./users";
 
@@ -13,6 +14,7 @@ export const invitations = pgTable(
     roleId: uuid("role_id")
       .notNull()
       .references(() => roles.id, { onDelete: "restrict" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "restrict" }),
     invitedEmail: varchar("invited_email", { length: 254 }).notNull(),
     tokenHash: text("token_hash").notNull().unique(),
     invitedBy: uuid("invited_by").references(() => users.id, { onDelete: "set null" }),
@@ -27,8 +29,11 @@ export const invitations = pgTable(
       "invitations_status_check",
       sql`${table.status} in ('pending', 'accepted', 'revoked', 'expired')`,
     ),
-    uniqueIndex("invitations_pending_user_unique")
-      .on(table.userId)
+    uniqueIndex("invitations_pending_email_unique")
+      .on(sql`lower(${table.invitedEmail})`)
       .where(sql`${table.status} = 'pending'`),
+    uniqueIndex("invitations_pending_customer_unique")
+      .on(table.customerId)
+      .where(sql`${table.status} = 'pending' and ${table.customerId} is not null`),
   ],
 );

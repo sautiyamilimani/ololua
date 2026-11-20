@@ -85,6 +85,13 @@
       "when": 1795123532513,
       "tag": "0011_create_remaining_erd_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795187188117,
+      "tag": "0012_add_invitation_customer_targets",
+      "breakpoints": true
     }
   ]
 }

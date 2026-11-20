@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getLockoutDurationMs, getPasswordMinimumLength, getSessionPolicy } from "./policy";
+import {
+  getLockoutDurationMs,
+  getPasswordMinimumLength,
+  getSessionPolicy,
+  isRoleAllowedForAccountType,
+} from "./policy";
 
 test("login failures follow the confirmed staged lockout schedule", () => {
   assert.equal(getLockoutDurationMs(1), null);
@@ -32,4 +37,11 @@ test("session and password policies distinguish customer, staff, and administrat
 test("invalid failure counts are rejected", () => {
   assert.throws(() => getLockoutDurationMs(0), RangeError);
   assert.throws(() => getLockoutDurationMs(1.5), RangeError);
+});
+
+test("customer and staff role boundaries are kept separate", () => {
+  assert.equal(isRoleAllowedForAccountType("customer", "customer"), true);
+  assert.equal(isRoleAllowedForAccountType("customer", "meter_reader"), false);
+  assert.equal(isRoleAllowedForAccountType("staff", "admin"), true);
+  assert.equal(isRoleAllowedForAccountType("staff", "customer"), false);
 });
