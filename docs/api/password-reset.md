@@ -96,4 +96,4 @@ Audit events must not contain passwords or raw/hash tokens.
 3. Enforce the per-email and per-IP limits above through `rate_limits`.
 4. On success, revoke all active sessions and require sign-in with the new password.
 5. On success, clear `failed_login_count` and `locked_until`.
-6. The reset page path is `/reset-password`, with the opaque token in the query string. The API queues reset email data; delivery remains decoupled until a worker/provider is implemented.
+6. The reset page path is `/reset-password`, with the opaque token in the query string. The API queues encrypted reset email data for the SMTP outbox worker. Sending is disabled by default and must remain disabled until the reset page is available and `APP_ORIGIN` points to the reachable application.

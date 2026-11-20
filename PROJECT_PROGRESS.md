@@ -502,4 +502,18 @@ Verification:
 - `git diff --check` passed.
 - No SMTP credentials or tokens were printed. No commit or push was made.
 
-Next step: request explicit Stage 4 approval before implementing `/accept-invitation` and `/reset-password` pages. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable app origin and review sender deliverability. Keep `EMAIL_OUTBOX_ENABLED` false until those routes are usable.
+Next step: ask the user to explicitly approve Stage 4 before implementing `/accept-invitation` and `/reset-password` pages. If approved, implement only the agreed frontend slice and follow the existing contracts in `docs/api/invitations.md` and `docs/api/password-reset.md`. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable app origin and review sender deliverability. Keep `EMAIL_OUTBOX_ENABLED` false until those routes are usable.
+
+## 12. Account-switch handoff
+
+This section is the current continuation note for a fresh Copilot session/account. Read `AGENTS.md`, this progress file, and the relevant API contract before making changes; do not rely on the previous conversation being available.
+
+- Current approved stage: Stage 3 - Business logic. Stage 4 frontend work has **not** been approved. Do not start it without the user's explicit approval.
+- The invitation, login/session/logout, password-reset APIs, and one-shot SMTP outbox worker are implemented. The `/accept-invitation` and `/reset-password` frontend pages are not implemented.
+- The SMTP worker has not sent queued application email. `EMAIL_OUTBOX_ENABLED` is intentionally false by default. Do not enable it until both pages exist and `APP_ORIGIN` is reachable. The standalone Gmail test was accepted by SMTP but went to Spam; inbox delivery is unresolved.
+- Migration `0012_add_invitation_customer_targets.sql` was applied to the loopback development database; the Drizzle journal has 13 entries. No production migration or production data change was made.
+- The implementation was committed and pushed to `origin/main` as `d6309942c0a030c1179d12fbd6cd4078b7a072db`. `.env` was not staged. The repo was clean after the push.
+- Verification recorded for this implementation: TypeScript, lint, auth unit/integration tests, email outbox integration tests, production build, Drizzle generation, SMTP credential verification (no email sent), and production dependency audit passed. See section 11 for exact commands and results; do not rerun SMTP sending as a handoff check.
+- Before future database changes, confirm the supplied ERD is available; it was provided as a conversation attachment and is not stored in the repository. Do not infer missing schema/business rules.
+
+Recommended next action: wait for explicit Stage 4 approval. Once approved, implement the narrowly agreed invitation/reset pages, validate their interactions against the existing API contracts, then separately review email deliverability before enabling queued sends.
