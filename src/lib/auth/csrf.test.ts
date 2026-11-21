@@ -45,3 +45,16 @@ test("CSRF validation requires the custom header and exact origin", () => {
     false,
   );
 });
+
+test("CSRF validation accepts the explicit localhost development origin", () => {
+  assert.equal(
+    hasValidCsrfHeaders(
+      requestWithHeaders({
+        "x-csrf-protection": "1",
+        origin: "http://localhost:3000",
+      }),
+      applicationOrigin,
+    ),
+    true,
+  );
+});

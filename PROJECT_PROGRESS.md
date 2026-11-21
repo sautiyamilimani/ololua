@@ -873,3 +873,29 @@ Verification:
 - No production build or browser end-to-end flow was run; a successful password-change browser flow would require sending and entering a real OTP.
 
 Recommended next action: after the development page reloads, confirm the sign-in button is enabled when opening `/sign-in`; use an approved test account and email configuration before performing a full OTP password-change flow.
+
+## 28. LAN sign-in CSRF and development-origin configuration
+
+- Added the current LAN IP to Next.js `allowedDevOrigins`.
+- Preserved the requested `http://localhost:3000` Origin exception alongside the exact configured `APP_ORIGIN` check, and added a focused test for it.
+- Updated the authentication contract to document both accepted origins. The exception is explicit and exact; wildcard origins are not accepted.
+- The user confirmed that sign-in works through the network address. No credentials were submitted as part of this source change.
+- `.env` remains local and was not staged or committed.
+
+Files changed:
+
+- `next.config.ts`
+- `src/lib/auth/csrf.ts`
+- `src/lib/auth/csrf.test.ts`
+- `docs/api/authentication.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsx --test src/lib/auth/csrf.test.ts`: passed, 2 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed; Git emitted an LF-to-CRLF warning for `next.config.ts`.
+- Production build: not run because the development server was listening on port 3000; avoid competing Next.js build output.
+
+Recommended next action: no further LAN-origin change is needed unless the machine's network address changes; if it does, update the local `APP_ORIGIN` and this development-origin allowlist together.

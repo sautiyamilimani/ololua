@@ -74,7 +74,7 @@ Do not disclose lock duration in the response. Email-based unlock is not part of
 For every state-changing `POST`, `PUT`, `PATCH`, and `DELETE` request:
 
 - Require `X-CSRF-Protection: 1`.
-- Require an `Origin` exactly matching the configured application origin.
+- Require an `Origin` exactly matching the configured application origin, or the explicit `http://localhost:3000` origin.
 - Reject failed checks with HTTP `403` and `CSRF_FAILED`.
 - Do not allow wildcard CORS origins. Cookie-bearing cross-origin access is not allowed.
 

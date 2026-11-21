@@ -28,8 +28,11 @@ export function getApplicationOrigin(): string {
 }
 
 export function hasValidCsrfHeaders(request: Request, applicationOrigin: string): boolean {
+  const requestOrigin = request.headers.get("origin");
+
   return (
     request.headers.get("x-csrf-protection") === "1" &&
-    request.headers.get("origin") === (applicationOrigin||"http://localhost:3000")
+    (requestOrigin === applicationOrigin ||
+      requestOrigin === "http://localhost:3000")
   );
 }
