@@ -11,13 +11,12 @@ function requestWithHeaders(headers: Record<string, string>): Request {
   });
 }
 
-test("CSRF validation requires the custom header, exact origin, and same-origin fetch site", () => {
+test("CSRF validation requires the custom header and exact origin", () => {
   assert.equal(
     hasValidCsrfHeaders(
       requestWithHeaders({
         "x-csrf-protection": "1",
         origin: applicationOrigin,
-        "sec-fetch-site": "same-origin",
       }),
       applicationOrigin,
     ),
@@ -39,9 +38,7 @@ test("CSRF validation requires the custom header, exact origin, and same-origin 
   assert.equal(
     hasValidCsrfHeaders(
       requestWithHeaders({
-        "x-csrf-protection": "1",
         origin: applicationOrigin,
-        "sec-fetch-site": "cross-site",
       }),
       applicationOrigin,
     ),

@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { PasswordVisibilityToggle } from "./password-visibility-toggle";
 
 type SignInFormState =
   | { kind: "idle" }
   | { kind: "submitting" }
-  | { kind: "error"; message: string }
-  | { kind: "success"; fullName: string };
+  | { kind: "error"; message: string };
 
 type AuthenticatedUserResponse = {
   success: true;
@@ -77,8 +79,10 @@ function getErrorMessage(code: string | null): string {
 }
 
 export function SignInForm() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [state, setState] = useState<SignInFormState>({ kind: "idle" });
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -129,9 +133,7 @@ export function SignInForm() {
       return;
     }
 
-    const user = getAuthenticatedUser(payload);
-
-    if (!user) {
+    if (!getAuthenticatedUser(payload)) {
       setState({
         kind: "error",
         message: "We could not verify the response. Please try again.",
@@ -140,23 +142,17 @@ export function SignInForm() {
     }
 
     setPassword("");
-    setState({ kind: "success", fullName: user.fullName });
-  }
-
-  if (state.kind === "success") {
-    return (
-      <div
-        className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950"
-        role="status"
-      >
-        Signed in as {state.fullName}. Your session is active, but the account
-        dashboard is not available yet.
-      </div>
-    );
+    setPasswordVisible(false);
+    router.replace("/dashboard");
   }
 
   return (
-    <form className="space-y-5" onSubmit={handleSubmit}>
+    <form
+      action="/api/auth/login"
+      className="space-y-5"
+      method="post"
+      onSubmit={handleSubmit}
+    >
       <div>
         <label
           className="mb-2 block text-sm font-medium text-slate-800"
@@ -184,16 +180,23 @@ export function SignInForm() {
         >
           Password
         </label>
-        <input
-          autoComplete="current-password"
-          className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-700 focus:ring-4 focus:ring-teal-700/15"
-          id="password"
-          name="password"
-          onChange={(event) => setPassword(event.currentTarget.value)}
-          required
-          type="password"
-          value={password}
-        />
+        <div className="relative">
+          <input
+            autoComplete="current-password"
+            className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 pr-12 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-700 focus:ring-4 focus:ring-teal-700/15"
+            id="password"
+            name="password"
+            onChange={(event) => setPassword(event.currentTarget.value)}
+            required
+            type={passwordVisible ? "text" : "password"}
+            value={password}
+          />
+          <PasswordVisibilityToggle
+            label="password"
+            onToggle={() => setPasswordVisible((visible) => !visible)}
+            visible={passwordVisible}
+          />
+        </div>
       </div>
 
       {state.kind === "error" && (
@@ -212,6 +215,14 @@ export function SignInForm() {
       >
         {state.kind === "submitting" ? "Signing in..." : "Sign in"}
       </button>
+      <p className="text-center text-sm">
+        <Link
+          className="font-semibold text-teal-800 underline-offset-4 hover:underline"
+          href="/forgot-password"
+        >
+          Forgot your password?
+        </Link>
+      </p>
     </form>
   );
 }

@@ -152,13 +152,25 @@ Never write planned work as completed work.
 
 ## Current project state
 
-- Stage: 4 - Frontend (sign-in, invitation acceptance, and password-reset pages approved); Stages 1-3 have approved work.
-- The project has 28 ERD tables, 13 journaled migrations, and a development seed script; see `PROJECT_PROGRESS.md` for the recorded verification and current database details.
+- Stage: 4 - Frontend (sign-in, invitation acceptance, password-reset request, reset, and authenticated password-change pages approved); Stages 1-3 have approved work.
+- The project has 28 ERD tables, 14 journaled migrations, a development seed script, and a trigger-backed singleton superadmin assignment; see `PROJECT_PROGRESS.md` for recorded verification and database details.
+- An empty authenticated `/dashboard` and responsive dashboard navigation shell are approved. The navigation includes Accounts > Change password. Broader dashboard modules are not approved.
 - The first API endpoint, `GET /api/health`, is a process liveness check only and does not check database readiness.
 - The ERD copy is `olulua-erd`.
 - The sign-in/session/sign-out contract and implementation status are documented in `docs/api/authentication.md` and `PROJECT_PROGRESS.md`.
-- Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The Stage 4 sign-in, invitation acceptance, and password-reset pages are implemented; broader frontend and PWA work is not approved. Outbox sending is explicitly disabled by default.
-- Confirmed invitation rules and implementation boundaries are documented in `docs/api/invitations.md`.
-- Do not expand frontend work beyond the approved sign-in, invitation acceptance, and password-reset pages, or begin PWA work, without further user approval.
-- For a fresh Copilot session/account, read this file, `PROJECT_PROGRESS.md`, and the relevant API contract before acting. The Stage 3 invitation/password-reset/SMTP baseline was pushed as `d6309942c0a030c1179d12fbd6cd4078b7a072db`, and the invitation/reset pages were pushed as `5f8461b9ea8b55fd5765440753970de16f2ed200`. The sign-in page and shared auth shell are newer uncommitted changes; consult `PROJECT_PROGRESS.md` for their verification.
-- The SMTP worker has not sent queued application email. Keep sending disabled until `APP_ORIGIN` points to a reachable deployment and sender deliverability is reviewed. The separate Gmail smoke test landed in Spam; SMTP authentication is not proof of inbox deliverability.
+- Stage 3 login/session/logout, invitation acceptance/issuance, password reset, authenticated current-password/email-OTP password change, and SMTP outbox delivery are implemented. The Stage 4 sign-in, invitation acceptance, password-reset request, reset, and authenticated password-change pages are implemented; broader frontend and PWA work is not approved. Outbox sending is explicitly disabled by default.
+- A general account settings page and its navigation are deferred by the user. Do not add them until separately approved; keep the protected change-password route available without linking it from sign-in.
+- Confirmed invitation rules, one-time development superadmin bootstrap, and implementation boundaries are documented in `docs/api/invitations.md`.
+- Do not expand frontend work beyond the approved sign-in, invitation acceptance, password-reset request, reset, and password-change pages, or begin PWA work, without further user approval.
+- For a fresh Copilot session/account, read this file, `PROJECT_PROGRESS.md`, and the relevant API contract before acting. The current pushed baseline includes the Stage 3 invitation/password-reset/SMTP implementation (`d6309942c0a030c1179d12fbd6cd4078b7a072db`), invitation/reset pages (`5f8461b9ea8b55fd5765440753970de16f2ed200`), and sign-in page (`77004cf90a1aa848519d542323e5ee26f1876460`). Consult `PROJECT_PROGRESS.md` for newer uncommitted work.
+- One explicitly approved local-development superadmin setup email was sent after the user confirmed sender review; no other queued application email was sent. For future sends, require a reachable `APP_ORIGIN` and sender review. The separate Gmail smoke test landed in Spam; SMTP authentication is not proof of inbox deliverability.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

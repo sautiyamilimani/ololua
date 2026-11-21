@@ -2,7 +2,7 @@ import "dotenv/config";
 import { createGmailSmtpSender, getSmtpConfiguration } from "@/lib/email/smtp";
 
 async function main(): Promise<void> {
-  const sender = createGmailSmtpSender(getSmtpConfiguration());
+  const sender = await createGmailSmtpSender(getSmtpConfiguration());
 
   try {
     await sender.verify();

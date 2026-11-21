@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import nodemailer from "nodemailer";
 import type { EmailSender } from "./outbox";
 
@@ -26,13 +27,21 @@ export function getSmtpConfiguration(
   return { email, appPassword };
 }
 
-export function createGmailSmtpSender(
+export async function createGmailSmtpSender(
   configuration: SmtpConfiguration,
-): EmailSender & { verify(): Promise<void>; close(): void } {
+): Promise<EmailSender & { verify(): Promise<void>; close(): void }> {
+  const addresses = await lookup("smtp.gmail.com", { all: true });
+  const server = addresses.find((address) => address.family === 4) ?? addresses[0];
+
+  if (!server) {
+    throw new Error("Gmail SMTP host did not resolve to an IP address.");
+  }
+
   const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
+    host: server.address,
     port: 465,
     secure: true,
+    tls: { servername: "smtp.gmail.com" },
     auth: {
       user: configuration.email,
       pass: configuration.appPassword,

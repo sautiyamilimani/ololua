@@ -1,6 +1,6 @@
 # Authentication API contract
 
-**Status:** Login, session-check, and logout Route Handlers are implemented. The sign-in page is also implemented; session management UI, password provisioning beyond the separate invitation/reset pages, and authorization remain out of scope.
+**Status:** Login, session-check, logout, and authenticated password-change Route Handlers are implemented. The sign-in and approved authentication pages are also implemented; general session-management UI and authorization remain out of scope.
 
 ## Scope
 
@@ -10,7 +10,7 @@ The first authentication API covers:
 - Checking the current session
 - Signing out the current session
 
-Invitation acceptance/password setup is documented separately in [invitations.md](./invitations.md). Password reset and standalone email verification still need separate contracts. The user table supports both staff and customer account types, so this contract uses one sign-in endpoint for both.
+Invitation acceptance/password setup is documented separately in [invitations.md](./invitations.md). Password reset and authenticated password change have separate contracts in [password-reset.md](./password-reset.md) and [password-change.md](./password-change.md). Standalone email verification remains a separate concern. The user table supports both staff and customer account types, so this contract uses one sign-in endpoint for both.
 
 ## Session transport
 
@@ -26,7 +26,7 @@ Session policy:
 - Other staff: 12-hour idle timeout.
 - Customers: 30-day rolling expiration, renewed with activity.
 
-Renew the effective expiry on qualifying activity: set `idle_expires_at` and `expires_at` to the applicable timeout from the latest activity. No separate hard absolute lifetime was specified, so do not impose one. Admin session cookies omit `Max-Age` and `Expires`; browser session restoration behavior is browser-dependent. The role key `admin` is seeded today; `superadmin` is not, so that role must exist before its special policy can apply.
+Renew the effective expiry on qualifying activity: set `idle_expires_at` and `expires_at` to the applicable timeout from the latest activity. No separate hard absolute lifetime was specified, so do not impose one. Admin session cookies omit `Max-Age` and `Expires`; browser session restoration behavior is browser-dependent. The development seed includes the `admin` and `superadmin` roles. Initial superadmin account setup is documented in [invitations.md](./invitations.md).
 
 ## Common response shapes
 
@@ -75,7 +75,6 @@ For every state-changing `POST`, `PUT`, `PATCH`, and `DELETE` request:
 
 - Require `X-CSRF-Protection: 1`.
 - Require an `Origin` exactly matching the configured application origin.
-- Require `Sec-Fetch-Site: same-origin`.
 - Reject failed checks with HTTP `403` and `CSRF_FAILED`.
 - Do not allow wildcard CORS origins. Cookie-bearing cross-origin access is not allowed.
 
@@ -181,7 +180,7 @@ The operation should be idempotent: a missing or already-invalid session still r
 
 The confirmed policies above do not define every implementation detail:
 
-1. The current seed includes the `admin` role but not `superadmin`. Add or assign that role only through an approved role-management/seed task.
+1. The development seed includes both `admin` and `superadmin` roles. The one-time bootstrap flow assigns the sole superadmin account; normal staff invitations cannot assign that role.
 2. The password policy defines minimum lengths only. The implemented 16 KiB request-body cap is a transport safeguard, not a password-length policy.
 3. There is no separate per-IP login rate-limit threshold. Account lockout protects known accounts; unknown-email attempts still incur password-hash work and security-event writes, so agree on an IP/global abuse limit before production exposure.
 

@@ -7,48 +7,45 @@ import {
   SmtpConfigurationError,
 } from "@/lib/email/smtp";
 import { processEmailOutboxBatch } from "@/lib/email/outbox";
+import {
+  assertEmailOutboxSendingEnabled,
+  EmailOutboxConfigurationError,
+} from "@/lib/email/outbox-config";
 
 class WorkerConfigurationError extends Error {}
 
-function assertSendingIsEnabled(): void {
-  if (process.env.EMAIL_OUTBOX_ENABLED !== "true") {
+function getBatchLimit(args: string[]): number | undefined {
+  if (args.length === 0) {
+    return undefined;
+  }
+
+  if (args.length !== 2 || args[0] !== "--limit") {
     throw new WorkerConfigurationError(
-      "Set EMAIL_OUTBOX_ENABLED=true to send queued emails.",
+      "Usage: npm run email:process-outbox -- [--limit 1-50]",
     );
   }
 
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new WorkerConfigurationError("DATABASE_URL is required.");
-  }
-
-  let hostnameValue: string;
-  try {
-    hostnameValue = new URL(databaseUrl).hostname.toLowerCase();
-  } catch {
-    throw new WorkerConfigurationError("DATABASE_URL must be a valid PostgreSQL URL.");
-  }
-  const localHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-
-  if (
-    !localHosts.has(hostnameValue) &&
-    process.env.EMAIL_OUTBOX_ALLOW_REMOTE_SEND !== "true"
-  ) {
+  const limit = Number(args[1]);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
     throw new WorkerConfigurationError(
-      "Remote database email delivery is disabled; explicitly set EMAIL_OUTBOX_ALLOW_REMOTE_SEND=true to allow it.",
+      "Email outbox batch limit must be between 1 and 50.",
     );
   }
+
+  return limit;
 }
 
 async function main(): Promise<void> {
-  assertSendingIsEnabled();
+  assertEmailOutboxSendingEnabled();
+  const limit = getBatchLimit(process.argv.slice(2));
   const configuration = getSmtpConfiguration();
-  const sender = createGmailSmtpSender(configuration);
+  const sender = await createGmailSmtpSender(configuration);
 
   try {
     await sender.verify();
     const result = await processEmailOutboxBatch(sender, {
       workerId: `${hostname()}:${process.pid}:${randomUUID()}`,
+      ...(limit === undefined ? {} : { limit }),
       fromAddress: configuration.email,
     });
 
@@ -63,6 +60,7 @@ async function main(): Promise<void> {
 main().catch((error: unknown) => {
   if (
     error instanceof WorkerConfigurationError ||
+    error instanceof EmailOutboxConfigurationError ||
     error instanceof SmtpConfigurationError
   ) {
     console.error(`Email outbox processing failed: ${error.message}`);

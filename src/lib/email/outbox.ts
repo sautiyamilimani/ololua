@@ -110,12 +110,7 @@ function buildMessage(
     throw new PermanentEmailError("Email secret payload is invalid.");
   }
 
-  const token =
-    isRecord(secret) && typeof secret.token === "string"
-      ? secret.token
-      : undefined;
-
-  if (!isRecord(secret) || !isOpaqueToken(token)) {
+  if (!isRecord(secret)) {
     throw new PermanentEmailError("Email secret payload is invalid.");
   }
 
@@ -127,55 +122,80 @@ function buildMessage(
   let subject: string;
   let text: string;
 
-  if (row.templateKey === "invitation") {
-    const accountType = requireString(row.templateData, "accountType");
+  if (row.templateKey === "password_change_otp") {
+    const otp = typeof secret.otp === "string" ? secret.otp : undefined;
 
-    if (accountType !== "staff" && accountType !== "customer") {
-      throw new PermanentEmailError("Invitation account type is invalid.");
+    if (!otp || !/^\d{6}$/u.test(otp)) {
+      throw new PermanentEmailError("Password-change code is invalid.");
     }
 
-    const invitationUrl = createApplicationLink(
-      "/accept-invitation",
-      token,
-    );
-    const customerNumber =
-      typeof row.templateData.customerNumber === "string"
-        ? `\nCustomer number: ${row.templateData.customerNumber.replace(/[\r\n\t]+/gu, " ").trim()}`
-        : "";
-
-    subject = "You're invited to Ololua Water Services";
+    subject = "Verify your password change";
     text = [
       `Hello ${fullName},`,
       "",
-      "You have been invited to set up an Ololua Water Services portal account.",
-      customerNumber,
+      "Use this one-time code to verify your password change:",
+      otp,
       "",
-      `Accept your invitation within 72 hours: ${invitationUrl}`,
-      "",
-      "If you were not expecting this invitation, you can ignore this email.",
-      "Ololua Water Services",
-    ].join("\n");
-  } else if (row.templateKey === "password_reset") {
-    const resetPath = requireString(row.templateData, "resetPath");
-
-    if (resetPath !== "/reset-password") {
-      throw new PermanentEmailError("Password reset path is invalid.");
-    }
-
-    const resetUrl = createApplicationLink(resetPath, token);
-    subject = "Reset your Ololua Water Services password";
-    text = [
-      `Hello ${fullName},`,
-      "",
-      "We received a request to reset the password for your Ololua Water Services account.",
-      `Use this link within 60 minutes: ${resetUrl}`,
-      "",
-      "If you did not request a password reset, you can ignore this email.",
-      "Your password will not change unless the link is used.",
+      "The code expires in 10 minutes. If you did not request this change, ignore this email and keep your current password.",
       "Ololua Water Services",
     ].join("\n");
   } else {
-    throw new PermanentEmailError("Email template is unsupported.");
+    const token = typeof secret.token === "string" ? secret.token : undefined;
+
+    if (!isOpaqueToken(token)) {
+      throw new PermanentEmailError("Email secret payload is invalid.");
+    }
+
+    if (row.templateKey === "invitation") {
+      const accountType = requireString(row.templateData, "accountType");
+
+      if (accountType !== "staff" && accountType !== "customer") {
+        throw new PermanentEmailError("Invitation account type is invalid.");
+      }
+
+      const invitationUrl = createApplicationLink(
+        "/accept-invitation",
+        token,
+      );
+      const customerNumber =
+        typeof row.templateData.customerNumber === "string"
+          ? `\nCustomer number: ${row.templateData.customerNumber.replace(/[\r\n\t]+/gu, " ").trim()}`
+          : "";
+
+      subject = "You're invited to Ololua Water Services";
+      text = [
+        `Hello ${fullName},`,
+        "",
+        "You have been invited to set up an Ololua Water Services portal account.",
+        customerNumber,
+        "",
+        `Accept your invitation within 72 hours: ${invitationUrl}`,
+        "",
+        "If you were not expecting this invitation, you can ignore this email.",
+        "Ololua Water Services",
+      ].join("\n");
+    } else if (row.templateKey === "password_reset") {
+      const resetPath = requireString(row.templateData, "resetPath");
+
+      if (resetPath !== "/reset-password") {
+        throw new PermanentEmailError("Password reset path is invalid.");
+      }
+
+      const resetUrl = createApplicationLink(resetPath, token);
+      subject = "Reset your Ololua Water Services password";
+      text = [
+        `Hello ${fullName},`,
+        "",
+        "We received a request to reset the password for your Ololua Water Services account.",
+        `Use this link within 60 minutes: ${resetUrl}`,
+        "",
+        "If you did not request a password reset, you can ignore this email.",
+        "Your password will not change unless the link is used.",
+        "Ololua Water Services",
+      ].join("\n");
+    } else {
+      throw new PermanentEmailError("Email template is unsupported.");
+    }
   }
 
   const senderDomain = senderAddress.split("@")[1];
@@ -191,11 +211,27 @@ function buildMessage(
 
 async function claimNextEmail(
   workerId: string,
+  templateKey?: "invitation" | "password_reset" | "password_change_otp",
 ): Promise<ClaimedEmail | null> {
   const now = new Date();
   const lockExpiresAt = new Date(now.getTime() + CLAIM_LEASE_MS);
 
   return db.transaction(async (transaction) => {
+    const exhaustedCondition = or(
+      and(
+        eq(emailOutbox.status, "queued"),
+        gte(emailOutbox.attempts, emailOutbox.maxAttempts),
+      ),
+      and(
+        eq(emailOutbox.status, "sending"),
+        or(
+          isNull(emailOutbox.lockedUntil),
+          lte(emailOutbox.lockedUntil, now),
+        ),
+        gte(emailOutbox.attempts, emailOutbox.maxAttempts),
+      ),
+    );
+
     await transaction
       .update(emailOutbox)
       .set({
@@ -206,21 +242,30 @@ async function claimNextEmail(
         updatedAt: now,
       })
       .where(
-        or(
-          and(
-            eq(emailOutbox.status, "queued"),
-            gte(emailOutbox.attempts, emailOutbox.maxAttempts),
-          ),
-          and(
-            eq(emailOutbox.status, "sending"),
-            or(
-              isNull(emailOutbox.lockedUntil),
-              lte(emailOutbox.lockedUntil, now),
-            ),
-            gte(emailOutbox.attempts, emailOutbox.maxAttempts),
+        templateKey
+          ? and(exhaustedCondition, eq(emailOutbox.templateKey, templateKey))
+          : exhaustedCondition,
+      );
+
+    const claimCondition = and(
+      lt(emailOutbox.attempts, emailOutbox.maxAttempts),
+      or(
+        and(
+          eq(emailOutbox.status, "queued"),
+          lte(emailOutbox.nextAttemptAt, now),
+        ),
+        and(
+          eq(emailOutbox.status, "sending"),
+          or(
+            isNull(emailOutbox.lockedUntil),
+            lte(emailOutbox.lockedUntil, now),
           ),
         ),
-      );
+      ),
+    );
+    const filteredClaimCondition = templateKey
+      ? and(claimCondition, eq(emailOutbox.templateKey, templateKey))
+      : claimCondition;
 
     const [row] = await transaction
       .select({
@@ -233,24 +278,7 @@ async function claimNextEmail(
         maxAttempts: emailOutbox.maxAttempts,
       })
       .from(emailOutbox)
-      .where(
-        and(
-          lt(emailOutbox.attempts, emailOutbox.maxAttempts),
-          or(
-            and(
-              eq(emailOutbox.status, "queued"),
-              lte(emailOutbox.nextAttemptAt, now),
-            ),
-            and(
-              eq(emailOutbox.status, "sending"),
-              or(
-                isNull(emailOutbox.lockedUntil),
-                lte(emailOutbox.lockedUntil, now),
-              ),
-            ),
-          ),
-        ),
-      )
+      .where(filteredClaimCondition)
       .orderBy(asc(emailOutbox.nextAttemptAt), asc(emailOutbox.createdAt))
       .limit(1)
       .for("update", { skipLocked: true });
@@ -341,7 +369,12 @@ async function markFailure(
 
 export async function processEmailOutboxBatch(
   sender: EmailSender,
-  options: { workerId?: string; limit?: number; fromAddress: string },
+  options: {
+    workerId?: string;
+    limit?: number;
+    fromAddress: string;
+    templateKey?: "invitation" | "password_reset" | "password_change_otp";
+  },
 ): Promise<OutboxBatchResult> {
   assertSecretPayloadEncryptionConfigured();
   getApplicationOrigin();
@@ -367,7 +400,7 @@ export async function processEmailOutboxBatch(
   };
 
   while (result.processed < limit) {
-    const row = await claimNextEmail(workerId);
+    const row = await claimNextEmail(workerId, options.templateKey);
 
     if (!row) {
       break;

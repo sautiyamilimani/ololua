@@ -1,4 +1,5 @@
 import {
+  createHmac,
   createCipheriv,
   createDecipheriv,
   randomBytes,
@@ -27,6 +28,18 @@ function getEncryptionKey(): Buffer {
 
 export function assertSecretPayloadEncryptionConfigured(): void {
   getEncryptionKey();
+}
+
+export function hashSecretValue(context: string, value: string): string {
+  if (context.length === 0) {
+    throw new Error("A secret-hash context is required.");
+  }
+
+  return createHmac("sha256", getEncryptionKey())
+    .update(context, "utf8")
+    .update("\0", "utf8")
+    .update(value, "utf8")
+    .digest("hex");
 }
 
 export function encryptSecretPayload(value: string): Buffer {

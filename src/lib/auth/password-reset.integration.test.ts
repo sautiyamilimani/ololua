@@ -22,7 +22,7 @@ import { createOpaqueToken, hashOpaqueToken } from "./token";
 import { verifyPassword } from "./password";
 
 process.env.EMAIL_OUTBOX_ENCRYPTION_KEY ??= Buffer.alloc(32, 0x5a).toString("base64");
-process.env.APP_ORIGIN ??= "http://localhost:3000";
+process.env.APP_ORIGIN = "http://localhost:3000";
 
 const fixtureUserIds = new Set<string>();
 const fixtureEmails = new Set<string>();
@@ -255,8 +255,8 @@ test("requests return the same accepted result and queue a hashed, encrypted 60-
     "integration-test",
   );
 
-  assert.deepEqual(knownResult, { kind: "accepted" });
-  assert.deepEqual(unknownResult, { kind: "accepted" });
+  assert.deepEqual(knownResult, { kind: "accepted", emailQueued: true });
+  assert.deepEqual(unknownResult, { kind: "accepted", emailQueued: false });
 
   const reset = await getQueuedToken(userId);
   const [outbox] = await db
@@ -295,7 +295,10 @@ test("a fourth request for one email is suppressed and earlier tokens are invali
 
   for (let attempt = 0; attempt < 4; attempt++) {
     const result = await requestPasswordReset(email, ipAddress, null);
-    assert.deepEqual(result, { kind: "accepted" });
+    assert.deepEqual(result, {
+      kind: "accepted",
+      emailQueued: attempt < 3,
+    });
   }
 
   const tokens = await db
@@ -337,7 +340,7 @@ test("the eleventh request from an IP is rate-limited with a retry interval", as
     const email = createFixtureEmail(`ip-limit-${attempt}`);
     trackRateLimitKeys(email, ipAddress);
     const result = await requestPasswordReset(email, ipAddress, null);
-    assert.deepEqual(result, { kind: "accepted" });
+    assert.deepEqual(result, { kind: "accepted", emailQueued: false });
   }
 
   const finalEmail = createFixtureEmail("ip-limit-final");
@@ -536,7 +539,7 @@ test("admin password minimum is enforced and ineligible accounts never queue ema
     trackRateLimitKeys(email, ipAddress);
     const userId = await createUser({ email, ...account });
     const request = await requestPasswordReset(email, ipAddress, null);
-    assert.deepEqual(request, { kind: "accepted" });
+    assert.deepEqual(request, { kind: "accepted", emailQueued: false });
 
     const tokens = await db
       .select({ id: passwordResetTokens.id })

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { PasswordVisibilityToggle } from "./password-visibility-toggle";
 
 type CredentialTokenFormProps = {
   flow: "invitation" | "password-reset";
@@ -73,8 +74,13 @@ export function CredentialTokenForm({
 }: CredentialTokenFormProps) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirmationVisible, setConfirmationVisible] = useState(false);
   const [state, setState] = useState<FormState>({ kind: "idle" });
   const isInvitation = flow === "invitation";
+  const passwordsMatch = confirmation.length > 0 && password === confirmation;
+  const passwordsMismatch =
+    isInvitation && confirmation.length > 0 && !passwordsMatch;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -147,6 +153,8 @@ export function CredentialTokenForm({
 
     setPassword("");
     setConfirmation("");
+    setPasswordVisible(false);
+    setConfirmationVisible(false);
     setState({ kind: "success", message: getSuccessMessage(flow) });
     window.history.replaceState(null, "", window.location.pathname);
   }
@@ -184,17 +192,24 @@ export function CredentialTokenForm({
         >
           New password
         </label>
-        <input
-          autoComplete="new-password"
-          className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-700 focus:ring-4 focus:ring-teal-700/15"
-          id="password"
-          minLength={8}
-          name="password"
-          onChange={(event) => setPassword(event.currentTarget.value)}
-          required
-          type="password"
-          value={password}
-        />
+        <div className="relative">
+          <input
+            autoComplete="new-password"
+            className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 pr-12 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-700 focus:ring-4 focus:ring-teal-700/15"
+            id="password"
+            minLength={8}
+            name="password"
+            onChange={(event) => setPassword(event.currentTarget.value)}
+            required
+            type={passwordVisible ? "text" : "password"}
+            value={password}
+          />
+          <PasswordVisibilityToggle
+            label="new password"
+            onToggle={() => setPasswordVisible((visible) => !visible)}
+            visible={passwordVisible}
+          />
+        </div>
       </div>
 
       <div>
@@ -204,17 +219,37 @@ export function CredentialTokenForm({
         >
           Confirm new password
         </label>
-        <input
-          autoComplete="new-password"
-          className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-700 focus:ring-4 focus:ring-teal-700/15"
-          id="password-confirmation"
-          minLength={8}
-          name="password-confirmation"
-          onChange={(event) => setConfirmation(event.currentTarget.value)}
-          required
-          type="password"
-          value={confirmation}
-        />
+        <div className="relative">
+          <input
+            aria-describedby={
+              passwordsMismatch ? "password-match-error" : undefined
+            }
+            aria-invalid={passwordsMismatch}
+            autoComplete="new-password"
+            className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 pr-12 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-700 focus:ring-4 focus:ring-teal-700/15"
+            id="password-confirmation"
+            minLength={8}
+            name="password-confirmation"
+            onChange={(event) => setConfirmation(event.currentTarget.value)}
+            required
+            type={confirmationVisible ? "text" : "password"}
+            value={confirmation}
+          />
+          <PasswordVisibilityToggle
+            label="password confirmation"
+            onToggle={() => setConfirmationVisible((visible) => !visible)}
+            visible={confirmationVisible}
+          />
+        </div>
+        {passwordsMismatch && (
+          <p
+            aria-live="polite"
+            className="mt-2 text-sm text-red-700"
+            id="password-match-error"
+          >
+            Passwords do not match.
+          </p>
+        )}
       </div>
 
       <p className="text-sm leading-6 text-slate-600">
@@ -233,7 +268,9 @@ export function CredentialTokenForm({
 
       <button
         className="flex min-h-11 w-full items-center justify-center rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={state.kind === "submitting"}
+        disabled={
+          state.kind === "submitting" || (isInvitation && !passwordsMatch)
+        }
         type="submit"
       >
         {state.kind === "submitting"

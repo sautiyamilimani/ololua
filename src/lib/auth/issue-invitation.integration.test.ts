@@ -383,6 +383,29 @@ test("customer invitations require the dedicated permission for non-admin staff"
   }
 });
 
+test("staff invitations cannot assign the superadmin role", async () => {
+  const adminIssuer = await createIssuer("admin");
+  const email = `issuance-test-superadmin-${randomUUID()}@example.test`;
+  const result = await issueInvitation(
+    adminIssuer.token,
+    {
+      accountType: "staff",
+      email,
+      fullName: "Second Superadmin Target",
+      roleKey: "superadmin",
+    },
+    null,
+  );
+
+  assert.equal(result.kind, "role-not-found");
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+  assert.equal(user, undefined);
+});
+
 test("issuance integration fixtures are removed after the tests", async () => {
   assertLocalDatabase();
 

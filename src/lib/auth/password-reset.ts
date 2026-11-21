@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   and,
   eq,
@@ -12,7 +12,6 @@ import {
   accountSecurityEvents,
   emailOutbox,
   passwordResetTokens,
-  rateLimits,
   roles,
   sessions,
   userRoles,
@@ -29,6 +28,7 @@ import {
   isAccountType,
   type AccountType,
 } from "./policy";
+import { consumeRateLimitBucket } from "./rate-limit";
 import { createOpaqueToken, hashOpaqueToken } from "./token";
 
 const EMAIL_LIMIT = 3;
@@ -41,32 +41,13 @@ const EMAIL_TEMPLATE_MAX_ATTEMPTS = 5;
 type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type PasswordResetRequestResult =
-  | { kind: "accepted" }
+  | { kind: "accepted"; emailQueued: boolean }
   | { kind: "rate-limited"; retryAfterSeconds: number };
 
 export type PasswordResetCompletionResult =
   | { kind: "completed" }
   | { kind: "invalid" }
   | { kind: "password-policy" };
-
-type RateLimitBucket = {
-  bucketKey: string;
-  action: string;
-  maximum: number;
-  windowMs: number;
-};
-
-function getBucketKey(action: string, value: string): string {
-  const digest = createHash("sha256")
-    .update(`${action}:${value}`)
-    .digest("hex");
-
-  return `${action}:${digest}`;
-}
-
-function secondsUntil(timestamp: Date, now: Date): number {
-  return Math.max(1, Math.ceil((timestamp.getTime() - now.getTime()) / 1000));
-}
 
 async function reserveRequestBuckets(
   transaction: DatabaseTransaction,
@@ -77,133 +58,36 @@ async function reserveRequestBuckets(
   | { kind: "allowed"; emailLimited: boolean }
   | { kind: "ip-limited"; retryAfterSeconds: number }
 > {
-  const ipBucket: RateLimitBucket = {
-    bucketKey: getBucketKey("password_reset_ip", ipAddress ?? "unknown"),
-    action: "password_reset_ip",
-    maximum: IP_LIMIT,
-    windowMs: IP_WINDOW_MS,
-  };
-  await transaction
-    .insert(rateLimits)
-    .values({
-      bucketKey: ipBucket.bucketKey,
-      action: ipBucket.action,
-      attemptCount: 0,
-      windowStartedAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing();
+  const ipBucket = await consumeRateLimitBucket(
+    transaction,
+    {
+      action: "password_reset_ip",
+      identity: ipAddress ?? "unknown",
+      maximum: IP_LIMIT,
+      windowMs: IP_WINDOW_MS,
+    },
+    now,
+  );
 
-  const [ipRow] = await transaction
-    .select({
-      attemptCount: rateLimits.attemptCount,
-      windowStartedAt: rateLimits.windowStartedAt,
-      blockedUntil: rateLimits.blockedUntil,
-    })
-    .from(rateLimits)
-    .where(eq(rateLimits.bucketKey, ipBucket.bucketKey))
-    .limit(1)
-    .for("update");
-
-  if (!ipRow) {
-    throw new Error("The password-reset IP rate-limit row was not created.");
-  }
-
-  const ipExpired = now.getTime() - ipRow.windowStartedAt.getTime() >= ipBucket.windowMs;
-  const ipWindowStart = ipExpired ? now : ipRow.windowStartedAt;
-  const ipWindowEnd = new Date(ipWindowStart.getTime() + ipBucket.windowMs);
-  const ipCurrentlyBlocked =
-    !ipExpired &&
-    (ipRow.attemptCount >= ipBucket.maximum ||
-      (ipRow.blockedUntil !== null && ipRow.blockedUntil > now));
-
-  if (ipCurrentlyBlocked) {
-    await transaction
-      .update(rateLimits)
-      .set({ blockedUntil: ipWindowEnd, updatedAt: now })
-      .where(eq(rateLimits.bucketKey, ipBucket.bucketKey));
-
+  if (!ipBucket.allowed) {
     return {
       kind: "ip-limited",
-      retryAfterSeconds: secondsUntil(ipWindowEnd, now),
+      retryAfterSeconds: ipBucket.retryAfterSeconds,
     };
   }
 
-  const nextIpAttemptCount = (ipExpired ? 0 : ipRow.attemptCount) + 1;
-  await transaction
-    .update(rateLimits)
-    .set({
-      attemptCount: nextIpAttemptCount,
-      windowStartedAt: ipWindowStart,
-      blockedUntil:
-        nextIpAttemptCount >= ipBucket.maximum ? ipWindowEnd : null,
-      updatedAt: now,
-    })
-    .where(eq(rateLimits.bucketKey, ipBucket.bucketKey));
+  const emailBucket = await consumeRateLimitBucket(
+    transaction,
+    {
+      action: "password_reset_email",
+      identity: email,
+      maximum: EMAIL_LIMIT,
+      windowMs: EMAIL_WINDOW_MS,
+    },
+    now,
+  );
 
-  const emailBucket: RateLimitBucket = {
-    bucketKey: getBucketKey("password_reset_email", email),
-    action: "password_reset_email",
-    maximum: EMAIL_LIMIT,
-    windowMs: EMAIL_WINDOW_MS,
-  };
-  await transaction
-    .insert(rateLimits)
-    .values({
-      bucketKey: emailBucket.bucketKey,
-      action: emailBucket.action,
-      attemptCount: 0,
-      windowStartedAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing();
-
-  const [emailRow] = await transaction
-    .select({
-      attemptCount: rateLimits.attemptCount,
-      windowStartedAt: rateLimits.windowStartedAt,
-      blockedUntil: rateLimits.blockedUntil,
-    })
-    .from(rateLimits)
-    .where(eq(rateLimits.bucketKey, emailBucket.bucketKey))
-    .limit(1)
-    .for("update");
-
-  if (!emailRow) {
-    throw new Error("The password-reset email rate-limit row was not created.");
-  }
-
-  const emailExpired =
-    now.getTime() - emailRow.windowStartedAt.getTime() >= emailBucket.windowMs;
-  const emailWindowStart = emailExpired ? now : emailRow.windowStartedAt;
-  const emailWindowEnd = new Date(emailWindowStart.getTime() + emailBucket.windowMs);
-  const emailLimited =
-    !emailExpired &&
-    (emailRow.attemptCount >= emailBucket.maximum ||
-      (emailRow.blockedUntil !== null && emailRow.blockedUntil > now));
-
-  if (emailLimited) {
-    await transaction
-      .update(rateLimits)
-      .set({ blockedUntil: emailWindowEnd, updatedAt: now })
-      .where(eq(rateLimits.bucketKey, emailBucket.bucketKey));
-
-    return { kind: "allowed", emailLimited: true };
-  }
-
-  const nextEmailAttemptCount = (emailExpired ? 0 : emailRow.attemptCount) + 1;
-  await transaction
-    .update(rateLimits)
-    .set({
-      attemptCount: nextEmailAttemptCount,
-      windowStartedAt: emailWindowStart,
-      blockedUntil:
-        nextEmailAttemptCount >= emailBucket.maximum ? emailWindowEnd : null,
-      updatedAt: now,
-    })
-    .where(eq(rateLimits.bucketKey, emailBucket.bucketKey));
-
-  return { kind: "allowed", emailLimited: false };
+  return { kind: "allowed", emailLimited: !emailBucket.allowed };
 }
 
 async function getRoleKeys(
@@ -260,7 +144,7 @@ export async function requestPasswordReset(
         requestId,
       });
 
-      return { kind: "accepted" };
+      return { kind: "accepted", emailQueued: false };
     }
 
     const [user] = await transaction
@@ -296,7 +180,7 @@ export async function requestPasswordReset(
         requestId,
       });
 
-      return { kind: "accepted" };
+      return { kind: "accepted", emailQueued: false };
     }
 
     const previousTokens = await transaction
@@ -377,7 +261,7 @@ export async function requestPasswordReset(
       requestId,
     });
 
-    return { kind: "accepted" };
+    return { kind: "accepted", emailQueued: true };
   });
 }
 

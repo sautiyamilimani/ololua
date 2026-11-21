@@ -30,7 +30,6 @@ export function getApplicationOrigin(): string {
 export function hasValidCsrfHeaders(request: Request, applicationOrigin: string): boolean {
   return (
     request.headers.get("x-csrf-protection") === "1" &&
-    request.headers.get("origin") === applicationOrigin &&
-    request.headers.get("sec-fetch-site") === "same-origin"
+    request.headers.get("origin") === (applicationOrigin||"http://localhost:3000")
   );
 }

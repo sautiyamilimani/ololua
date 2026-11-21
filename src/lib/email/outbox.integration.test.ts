@@ -14,7 +14,7 @@ import { encryptSecretPayload } from "./secret-payload";
 import { createOpaqueToken } from "@/lib/auth/token";
 
 process.env.EMAIL_OUTBOX_ENCRYPTION_KEY ??= Buffer.alloc(32, 0x5a).toString("base64");
-process.env.APP_ORIGIN ??= "http://localhost:3000";
+process.env.APP_ORIGIN = "http://localhost:3000";
 
 const fixtureIds = new Set<string>();
 
@@ -32,6 +32,7 @@ function assertLocalDatabase(): void {
 async function createOutboxRow(options: {
   templateKey: string;
   templateData: Record<string, unknown> | null;
+  secretPayload?: Record<string, unknown>;
   attempts?: number;
   maxAttempts?: number;
 }): Promise<{ id: string; token: string }> {
@@ -47,7 +48,9 @@ async function createOutboxRow(options: {
     recipientEmail: `outbox-test-${id}@example.test`,
     templateKey: options.templateKey,
     templateData: options.templateData,
-    secretPayloadEncrypted: encryptSecretPayload(JSON.stringify({ token })),
+    secretPayloadEncrypted: encryptSecretPayload(
+      JSON.stringify(options.secretPayload ?? { token }),
+    ),
     status: "queued",
     attempts: options.attempts ?? 0,
     maxAttempts: options.maxAttempts ?? 5,
@@ -142,6 +145,89 @@ test("the worker renders and sends invitation and reset messages without real SM
   assert.ok(rows.every((row) => row.status === "sent" && row.attempts === 1));
   assert.ok(rows.every((row) => row.providerMessageId !== null));
   assert.ok(rows.every((row) => row.lockedBy === null && row.lockedUntil === null));
+});
+
+test("the password-reset worker filter leaves invitation messages queued", async () => {
+  const invitation = await createOutboxRow({
+    templateKey: "invitation",
+    templateData: {
+      fullName: "Filtered Invitation Test",
+      accountType: "staff",
+    },
+  });
+  const reset = await createOutboxRow({
+    templateKey: "password_reset",
+    templateData: {
+      fullName: "Filtered Reset Test",
+      resetPath: "/reset-password",
+    },
+  });
+  const messages: OutgoingEmail[] = [];
+  const sender: EmailSender = {
+    async sendMail(message) {
+      messages.push(message);
+      return { messageId: message.messageId };
+    },
+  };
+
+  const result = await processEmailOutboxBatch(sender, {
+    workerId: "outbox-reset-filter-worker",
+    fromAddress: "sender@example.test",
+    templateKey: "password_reset",
+  });
+
+  assert.deepEqual(result, { processed: 1, sent: 1, retried: 0, failed: 0 });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.to, `outbox-test-${reset.id}@example.test`);
+
+  const rows = await db
+    .select({ id: emailOutbox.id, status: emailOutbox.status })
+    .from(emailOutbox)
+    .where(inArray(emailOutbox.id, [invitation.id, reset.id]));
+  assert.equal(rows.find((row) => row.id === reset.id)?.status, "sent");
+  assert.equal(rows.find((row) => row.id === invitation.id)?.status, "queued");
+});
+
+test("the password-change worker sends only the OTP template", async () => {
+  const invitation = await createOutboxRow({
+    templateKey: "invitation",
+    templateData: {
+      fullName: "Filtered Invitation Test",
+      accountType: "staff",
+    },
+  });
+  const otp = await createOutboxRow({
+    templateKey: "password_change_otp",
+    templateData: { fullName: "Password Change Test" },
+    secretPayload: { otp: "042681" },
+  });
+  const messages: OutgoingEmail[] = [];
+  const sender: EmailSender = {
+    async sendMail(message) {
+      messages.push(message);
+      return { messageId: message.messageId };
+    },
+  };
+
+  const result = await processEmailOutboxBatch(sender, {
+    workerId: "outbox-password-change-worker",
+    fromAddress: "sender@example.test",
+    templateKey: "password_change_otp",
+  });
+
+  assert.deepEqual(result, { processed: 1, sent: 1, retried: 0, failed: 0 });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.to, `outbox-test-${otp.id}@example.test`);
+  assert.match(messages[0]?.subject ?? "", /password change/u);
+  assert.match(messages[0]?.text ?? "", /042681/u);
+  assert.match(messages[0]?.text ?? "", /expires in 10 minutes/u);
+
+  const rows = await db
+    .select({ id: emailOutbox.id, status: emailOutbox.status })
+    .from(emailOutbox)
+    .where(inArray(emailOutbox.id, [invitation.id, otp.id]));
+  assert.equal(rows.find((row) => row.id === otp.id)?.status, "sent");
+  assert.equal(rows.find((row) => row.id === invitation.id)?.status, "queued");
 });
 
 test("SMTP failures retry with backoff and eventually move the message to failed", async () => {

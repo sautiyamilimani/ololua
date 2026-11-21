@@ -4,7 +4,6 @@ import {
   accountSecurityEvents,
   customerUserAccess,
   customers,
-  emailOutbox,
   invitations,
   permissions,
   rolePermissions,
@@ -14,12 +13,14 @@ import {
   users,
 } from "@/lib/db/schema";
 import { db } from "@/lib/db";
-import { encryptSecretPayload } from "@/lib/email/secret-payload";
+import {
+  queueInvitationEmail,
+  revokeQueuedInvitationEmail,
+} from "./invitation-email";
 import { getSessionPolicy, isRoleAllowedForAccountType, type SessionPolicy } from "./policy";
 import { hashOpaqueToken, createOpaqueToken } from "./token";
 
 const INVITATION_LIFETIME_MS = 72 * 60 * 60 * 1000;
-const EMAIL_MAX_ATTEMPTS = 5;
 const CUSTOMER_INVITATION_PERMISSION = "invitations.create_customer";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
@@ -231,26 +232,6 @@ async function lockInvitationEmail(
   );
 }
 
-async function revokeQueuedInvitationEmail(
-  transaction: DatabaseTransaction,
-  invitationId: string,
-  now: Date,
-): Promise<void> {
-  await transaction
-    .update(emailOutbox)
-    .set({
-      status: "failed",
-      lastError: "Invitation was replaced before delivery.",
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(emailOutbox.idempotencyKey, `invitation:${invitationId}`),
-        eq(emailOutbox.status, "queued"),
-      ),
-    );
-}
-
 export async function issueInvitation(
   sessionToken: string,
   input: IssueInvitationInput,
@@ -258,6 +239,9 @@ export async function issueInvitation(
 ): Promise<IssueInvitationResult> {
   if (!isValidInvitationTarget(input)) {
     return { kind: "conflict" };
+  }
+  if (input.accountType === "staff" && input.roleKey === "superadmin") {
+    return { kind: "role-not-found" };
   }
 
   const rawToken = createOpaqueToken();
@@ -456,8 +440,6 @@ export async function issueInvitation(
 
     const invitationId = randomUUID();
     const expiresAt = new Date(now.getTime() + INVITATION_LIFETIME_MS);
-    const encryptedToken = encryptSecretPayload(JSON.stringify({ token: rawToken }));
-
     await transaction.insert(invitations).values({
       id: invitationId,
       userId,
@@ -471,24 +453,15 @@ export async function issueInvitation(
       expiresAt,
     });
 
-    await transaction.insert(emailOutbox).values({
-      recipientUserId: userId,
-      recipientEmail: target.email,
-      templateKey: "invitation",
-      templateData: {
-        invitationId,
-        accountType: target.accountType,
-        fullName: target.fullName,
-        customerNumber: target.customerNumber,
-      },
-      secretPayloadEncrypted: encryptedToken,
-      status: "queued",
-      attempts: 0,
-      maxAttempts: EMAIL_MAX_ATTEMPTS,
-      nextAttemptAt: now,
-      idempotencyKey: `invitation:${invitationId}`,
-      createdAt: now,
-      updatedAt: now,
+    await queueInvitationEmail(transaction, {
+      invitationId,
+      userId,
+      email: target.email,
+      accountType: target.accountType,
+      fullName: target.fullName,
+      customerNumber: target.customerNumber,
+      token: rawToken,
+      now,
     });
 
     await transaction.insert(accountSecurityEvents).values({

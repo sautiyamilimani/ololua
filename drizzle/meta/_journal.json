@@ -92,6 +92,13 @@
       "when": 1795187188117,
       "tag": "0012_add_invitation_customer_targets",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795203625366,
+      "tag": "0013_add_superadmin_assignments",
+      "breakpoints": true
     }
   ]
 }

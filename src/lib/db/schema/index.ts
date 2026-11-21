@@ -3,6 +3,7 @@ export * from "./roles";
 export * from "./permissions";
 export * from "./role-permissions";
 export * from "./user-roles";
+export * from "./superadmin-assignments";
 export * from "./invitations";
 export * from "./sessions";
 export * from "./password-reset-tokens";

@@ -1,15 +1,24 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getClientIpAddress } from "@/lib/auth/client-ip";
 import { getApplicationOrigin, hasValidCsrfHeaders } from "@/lib/auth/csrf";
 import { requestPasswordReset } from "@/lib/auth/password-reset";
 import { isRecord, readJsonBody } from "@/lib/auth/request";
 import { errorResponse, successResponse } from "@/lib/auth/response";
+import { isEmailOutboxSendingEnabled } from "@/lib/email/outbox-config";
+import { sendPendingOutboxEmails } from "@/lib/email/outbox-delivery";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
 function logUnexpectedFailure(error: unknown): void {
   const errorType = error instanceof Error ? error.name : "UnknownError";
   console.error(`[auth.password-reset.request] Operation failed (${errorType}).`);
+}
+
+function logEmailDeliveryFailure(error: unknown): void {
+  const errorType = error instanceof Error ? error.name : "UnknownError";
+  console.error(
+    `[auth.password-reset.request] Deferred email delivery failed (${errorType}).`,
+  );
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -44,6 +53,23 @@ export async function POST(request: Request): Promise<NextResponse> {
       getClientIpAddress(request),
       request.headers.get("user-agent"),
     );
+
+    if (result.kind === "accepted" && result.emailQueued) {
+      if (isEmailOutboxSendingEnabled()) {
+        after(async () => {
+          try {
+            const delivery = await sendPendingOutboxEmails("password_reset");
+            if (delivery.retried > 0 || delivery.failed > 0) {
+              console.error(
+                `[auth.password-reset.request] Email delivery needs retry or failed (retried=${delivery.retried}, failed=${delivery.failed}).`,
+              );
+            }
+          } catch (error) {
+            logEmailDeliveryFailure(error);
+          }
+        });
+      }
+    }
 
     if (result.kind === "rate-limited") {
       return NextResponse.json(

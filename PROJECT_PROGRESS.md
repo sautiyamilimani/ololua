@@ -25,7 +25,7 @@ Build a reliable Water Services Management Information System for Ololua. Correc
 
 ## 4. Current stage and progress
 
-**Current stage: Stage 4 - Frontend (sign-in, invitation acceptance, and password-reset pages approved).**
+**Current stage: Stage 4 - Frontend (sign-in, invitation acceptance, password-reset request, reset, and authenticated password-change pages approved).**
 
 Completed in the initial task:
 
@@ -377,7 +377,7 @@ These are review findings, not new business rules. Resolve open policy questions
 2. Login validates JSON and email input, limits request bodies to 16 KiB, uses case-insensitive email lookup, requires active and verified users, and returns identical generic `401` responses for unknown, incorrect, suspended, unverified, and locked accounts.
 3. Login failure counts are serialized by a user-row lock and use the confirmed 3/60-second, 2/3-minute, then 30-minute repeating lockout schedule. Successful login resets the counter.
 4. Password verification uses versioned Node `scrypt` hashes with constant-time comparison and dummy work for missing/unsupported hashes. Session tokens are random, stored only as SHA-256 hashes, and sent only in HttpOnly cookies.
-5. State-changing login/logout requests enforce the custom CSRF header, exact configured origin, and `Sec-Fetch-Site: same-origin`. Auth events are stored without passwords or tokens.
+5. At initial implementation, state-changing login/logout requests also required `Sec-Fetch-Site: same-origin`; this was later removed after the LAN browser omitted that header. Current CSRF behavior is documented in section 18. Auth events are stored without passwords or tokens.
 6. The session status GET is read-only. `renewActiveSession` provides transactional expiry renewal for authenticated route handlers after applicable request-security checks; it is not yet wired into resource endpoints.
 7. Changed the shared Drizzle runtime adapter from Neon HTTP to `pg` Pool with local SSL disabled only for loopback hosts and `verify-full` for remote PostgreSQL. This enables transactions and `SELECT FOR UPDATE`, which the login lockout requires.
 8. No migration or seed change was made. Password provisioning/invitation acceptance, role/permission authorization, frontend login, and a per-IP/global rate limit remain out of scope.
@@ -446,9 +446,9 @@ Remaining boundaries at invitation-issuance completion: invitation email deliver
 
 ## 9. Next step
 
-Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The approved focused Stage 4 slices for sign-in, invitation acceptance, and password reset are complete in sections 13-14. Broader frontend and PWA work is not approved. Outbox sending remains disabled by default.
+Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The approved focused Stage 4 slices for sign-in, invitation acceptance, password-reset request, and password reset are complete in sections 13-15. Broader frontend and PWA work is not approved. Outbox sending remains disabled by default.
 
-Next step: review the completed authentication pages with the user and obtain a separate scope/approval before expanding Stage 4. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable application origin and review sender deliverability.
+Next step: verify sign-in from the user's phone using one consistent LAN origin and a matching development `APP_ORIGIN`. Obtain separate scope/approval before expanding Stage 4. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable application origin and review sender deliverability.
 
 ---
 
@@ -510,17 +510,17 @@ At worker completion, the next step was to request Stage 4 approval for those pa
 
 This section is the current continuation note for a fresh Copilot session/account. Read `AGENTS.md`, this progress file, and the relevant API contract before making changes; do not rely on the previous conversation being available.
 
-- Current approved scope: Stage 4 - the sign-in, invitation acceptance, and password-reset pages only. Do not expand to other frontend features or PWA work without further approval.
-- The invitation, login/session/logout, and password-reset APIs and the one-shot SMTP outbox worker are implemented. The `/sign-in`, `/accept-invitation`, and `/reset-password` pages are implemented; see sections 13-14.
-- The SMTP worker has not sent queued application email. `EMAIL_OUTBOX_ENABLED` is intentionally false by default. Do not enable it until `APP_ORIGIN` points to a reachable deployment and sender deliverability is reviewed. The standalone Gmail test was accepted by SMTP but went to Spam; inbox delivery is unresolved.
+- Current approved scope: Stage 4 - the sign-in, invitation acceptance, password-reset request, and reset pages only. Do not expand to other frontend features or PWA work without further approval.
+- The invitation, login/session/logout, and password-reset APIs and the one-shot SMTP outbox worker are implemented. The `/sign-in`, `/accept-invitation`, `/forgot-password`, and `/reset-password` pages are implemented; see sections 13-15.
+- One explicitly approved local-development superadmin setup email was sent and marked sent after the user confirmed sender review. No other queued application email was sent. For future sends, require a reachable `APP_ORIGIN` and sender review; SMTP acceptance does not guarantee inbox placement, and the earlier standalone Gmail test landed in Spam.
 - Migration `0012_add_invitation_customer_targets.sql` was applied to the loopback development database; the Drizzle journal has 13 entries. No production migration or production data change was made.
-- The Stage 3 implementation was committed and pushed to `origin/main` as `d6309942c0a030c1179d12fbd6cd4078b7a072db`; invitation/reset pages were later pushed as `5f8461b9ea8b55fd5765440753970de16f2ed200`. `.env` was not staged. Sign-in page changes in section 14 are newer and currently uncommitted.
+- The Stage 3 implementation was pushed as `d6309942c0a030c1179d12fbd6cd4078b7a072db`; invitation/reset pages as `5f8461b9ea8b55fd5765440753970de16f2ed200`; and the sign-in page as `77004cf90a1aa848519d542323e5ee26f1876460`. `.env` was not staged. The forgot-password request page in section 15 is newer and uncommitted.
 - Verification recorded for this implementation: TypeScript, lint, auth unit/integration tests, email outbox integration tests, production build, Drizzle generation, SMTP credential verification (no email sent), and production dependency audit passed. See section 11 for exact commands and results; do not rerun SMTP sending as a handoff check.
 - Before future database changes, confirm the supplied ERD is available; it was provided as a conversation attachment and is not stored in the repository. Do not infer missing schema/business rules.
 
-Recommended next action: review the three completed authentication pages and obtain the user's separate approval before taking on any other frontend or PWA feature.
+Recommended next action: verify phone sign-in after restarting the dev server with `APP_ORIGIN` set to the LAN origin, and use that same origin from both phone and laptop. Obtain separate approval before taking on any other frontend or PWA feature.
 
-- A separate `.env.example` modification was present while the Stage 4 pages were committed and was deliberately left unstaged. Inspect its sanitized diff before any later staging; do not overwrite it or assume it belongs to the page work.
+- A separate `.env.example` modification was present during earlier Stage 4 work and was deliberately left untouched. The latest status check no longer shows a working-tree change for that file.
 
 ## 13. Stage 4 invitation and password-reset pages: complete
 
@@ -547,7 +547,7 @@ Verification:
 - Added a reusable auth-page shell and refactored the invitation/reset pages to use it.
 - The sign-in form sends same-origin JSON with the CSRF marker, disables duplicate submissions, validates the response envelope, and shows the same generic invalid-credentials message for all login/account-state failures. It does not impose password-setting minimums on sign-in.
 - On success, the session cookie is retained by the same-origin fetch and the page confirms the safe returned display name. No dashboard redirect is attempted because a dashboard is not implemented.
-- No session logic/API, schema, migration, production data, or email-sending configuration was changed. The unrelated `.env.example` modification remains uncommitted.
+- No session logic/API, schema, migration, production data, or email-sending configuration was changed. At that time, an unrelated `.env.example` modification was left unstaged; see the current status in section 12.
 - Files changed: `src/app/sign-in/page.tsx`, `src/components/auth/sign-in-form.tsx`, `src/components/auth/auth-page-shell.tsx`, the invitation/reset pages, `docs/api/authentication.md`, `AGENTS.md`, and this progress file.
 
 Verification:
@@ -559,4 +559,298 @@ Verification:
 - Browser verification used intercepted API responses, not real credentials or database writes. It confirmed the page renders, submits a same-origin `POST` with `X-CSRF-Protection: 1` and an `Origin` header, displays the generic invalid-credentials message for a `401`, and displays success while clearing the password field for a valid success response.
 - The temporary local server was stopped. No real sign-in request or email was sent.
 - `git diff --check` passed.
-- Sign-in changes are not yet committed or pushed. The `.env.example` change remains separate and unstaged.
+- Sign-in changes were later committed as `77004cf90a1aa848519d542323e5ee26f1876460`.
+
+## 15. Stage 4 password-reset request page: complete
+
+- The user asked to continue after the sign-in page. The next tightly related UI slice was the email request page that starts the already-implemented password-reset flow.
+- Added `/forgot-password` and linked to it from the sign-in form. The page submits only the email address to `POST /api/auth/password-reset/request`.
+- Successful valid-email requests show the same account-neutral confirmation. The UI handles IP throttling, validation, CSRF, network, and internal errors without exposing account state. The confirmation accurately notes that email delivery must be enabled for a message to be sent.
+- No password-reset business logic, session behavior, database structure, or email-sending configuration was changed. No email or database write was performed. Keep `EMAIL_OUTBOX_ENABLED` false until app origin and sender deliverability are ready.
+- Files changed: `src/app/forgot-password/page.tsx`, `src/components/auth/password-reset-request-form.tsx`, `src/components/auth/sign-in-form.tsx`, `docs/api/password-reset.md`, `AGENTS.md`, and this progress file.
+
+Verification:
+
+- `npx tsc --noEmit` passed after the production build refreshed generated Next.js route types.
+- `npm run lint` passed.
+- `npm run test:auth` passed: 7 unit tests.
+- `npm run build` passed; Next lists `/forgot-password` as a static route.
+- Browser verification used intercepted API responses, not real requests, credentials, or database writes. It confirmed the page submits only the email with `X-CSRF-Protection: 1` and an `Origin` header; a `202` response displays the same generic message without echoing the submitted address, and `429 RATE_LIMITED` displays a wait-and-retry message.
+- The temporary local server was stopped. No email was sent.
+- `git diff --check` passed after this progress update.
+- Changes are not yet committed or pushed. The latest status check shows no separate `.env.example` modification.
+
+## 16. LAN sign-in submission: diagnosis and mitigation
+
+- The user reported that the sign-in form worked from `localhost` but submitted as a browser-native `GET` from a phone using the laptop's LAN IP. A native `GET` is consistent with the React submit handler not being active when the form is submitted, but the exact original cause is not established.
+- The user clarified that no HMR/WebSocket failure was visible on their reload. The latest LAN-origin browser session also showed no HMR error, so an HMR failure is not claimed as the root cause.
+- Added an explicit `method="post"` and `action="/api/auth/login"` to the sign-in form. If JavaScript is unavailable, the browser fallback is a POST and will fail closed because the API requires JSON and CSRF headers; this prevents email/password from being placed in the page URL.
+- Added the current LAN hostname (`10.0.62.42`) to Next.js `allowedDevOrigins` for development asset requests. This is a development-server setting, not an authentication allowlist. It may need updating if the laptop's LAN address changes.
+- Verified in a browser using the LAN URL `http://10.0.62.42:3000/sign-in` and intercepted API response: the hydrated form sent `POST`, `application/json`, and `X-CSRF-Protection: 1`; the fake `401` appeared in the page and the URL stayed at `/sign-in` with no query string. The form markup reports `method="post"` and `action="/api/auth/login"`.
+- This browser check used only test values and an intercepted response; it did not call the real login API, access the database, or use real credentials.
+- The API validates the exact configured origin. For phone testing, set local `APP_ORIGIN=http://10.0.62.42:3000` in `.env.local`, restart the development server, and use that exact same origin on both the phone and laptop. Do not weaken the exact-origin CSRF check to allow both `localhost` and the LAN IP.
+
+Verification:
+
+- `npx tsc --noEmit` passed.
+- `npm run lint` passed.
+- `npm run test:auth` passed: 7 tests.
+- `git diff --check` passed.
+- A production build was not rerun because the project development server was active on port 3000 (PID 7012) and was left running to avoid disrupting the user's session. Earlier build results do not validate this final configuration change.
+- No real credentials, email, database write, or production operation was used.
+
+## 17. LAN network-address troubleshooting
+
+- Rechecked the development environment on 2026-11-20.
+- Port 3000 was not listening before restart.
+- The active Wi-Fi IPv4 address was `10.0.62.42`; Next.js `allowedDevOrigins` and the recorded `APP_ORIGIN` already use this address.
+- Restarted `npm run dev -- --hostname 0.0.0.0`.
+- Verified port 3000 listens on `0.0.0.0` on PID 24176.
+- Verified `http://127.0.0.1:3000/sign-in` returns HTTP 200.
+- Verified `http://10.0.62.42:3000/sign-in` returns HTTP 200 from the same machine.
+- No source-code or authentication-origin change was made during this troubleshooting check.
+- The server remains running as a detached development process for the phone/laptop LAN check.
+
+Recommended next action: use `http://10.0.62.42:3000/sign-in` from the phone and confirm the hydrated form submits `POST` rather than opening a browser-native GET URL. The server PID or LAN address may change after restart or network reassignment.
+
+## 18. LAN sign-in 403: CSRF header diagnosis and fix
+
+- Reproduced the reported HTTP 403 using the LAN sign-in page with fake credentials.
+- Added temporary server-side CSRF header logging to identify the failing condition.
+- Confirmed the browser sent:
+  - the exact configured origin (`http://10.0.62.42:3000`) in `Origin`;
+  - `X-CSRF-Protection: 1`;
+  - no `Sec-Fetch-Site` header.
+- The 403 was caused by the CSRF helper requiring `Sec-Fetch-Site: same-origin`, even though that browser request did not send the header.
+- Removed the `Sec-Fetch-Site` requirement.
+- Preserved exact-origin validation and the custom `X-CSRF-Protection: 1` header requirement.
+- Removed the temporary diagnostic logging.
+- Re-tested the LAN page with fake credentials: the response changed from HTTP 403 to HTTP 401 and the page showed "Email or password is incorrect."
+- The 401 confirms that the request passed CSRF and reached credential verification. It is expected for the deliberately fake account.
+
+Verification:
+
+- `npm run test:auth`: passed, 7 tests.
+- `npx tsc --noEmit`: passed.
+- LAN browser sign-in test: HTTP 403 reproduced before the fix and HTTP 401 after the fix.
+- No real credentials or database writes were used.
+
+## 19. Initial superadmin bootstrap and database singleton enforcement
+
+- The user confirmed the onboarding rule: one initial superadmin is created, confirms the email and chooses a password from the emailed link, and later admins/users are created through the authorized invitation flow. A normal invitation cannot assign another `superadmin` role.
+- Added `superadmin_assignments`, a one-row support table with a checked singleton key and user/role foreign keys. A PostgreSQL trigger on `user_roles` claims/releases the slot as superadmin role assignments are inserted, updated, or removed. The primary key rejects concurrent duplicate assignments at the database layer.
+- Migration `0013_add_superadmin_assignments.sql` backfills any existing superadmin assignment; a duplicate preexisting assignment would fail migration rather than be silently changed.
+- Added `auth:bootstrap-superadmin`, which accepts a name and email, refuses non-loopback databases, creates an invited staff user, assigns the singleton role, and queues the existing invitation link. Re-running for the same still-invited account replaces the pending link. No password is seeded or printed.
+- Normal staff invitation issuance now rejects the `superadmin` role. Invitation queue/revoke writes are shared between the standard invitation service and bootstrap service.
+- The invitation acceptance flow handles the confirmation link, sets the password, verifies the email, activates the account, and starts the session.
+- The user-provided development account was created in the loopback database. It remains `invited`, with no password and no verified email until the setup link is accepted. Its invitation email was sent after the user confirmed sender deliverability review; the outbox records the message as `sent`.
+- Gmail SMTP initially failed Nodemailer's DNS resolution with `EDNS`, although the system resolver and TLS connection worked. Updated the SMTP sender to use the system DNS resolver while retaining TLS hostname verification for `smtp.gmail.com`. Added `--limit 1` to the outbox command so this delivery processed only one queued message.
+- Updated the Drizzle config to disable SSL for loopback databases and require `verify-full` for remote databases. This fixed the standard local migration command, which previously failed against the local server with the `.env` SSL mode.
+- No production database was accessed, and no password was created or exposed.
+
+Files changed for this task:
+
+- `src/lib/db/schema/superadmin-assignments.ts`, `src/lib/db/schema/index.ts`, `drizzle/0013_add_superadmin_assignments.sql`, `drizzle/meta/_journal.json`, and `drizzle/meta/0013_snapshot.json`
+- `src/lib/auth/bootstrap-superadmin.ts`, `src/lib/auth/invitation-email.ts`, `src/lib/auth/issue-invitation.ts`, `src/scripts/bootstrap-superadmin.ts`, `src/scripts/process-email-outbox.ts`, `src/lib/email/smtp.ts`, and `src/scripts/verify-email-smtp.ts`
+- `src/lib/auth/superadmin-bootstrap.integration.test.ts`, `src/lib/auth/issue-invitation.integration.test.ts`, `src/lib/auth/password-reset.integration.test.ts`, `src/lib/email/outbox.integration.test.ts`, and `package.json`
+- `drizzle.config.ts`, `docs/api/invitations.md`, `docs/api/authentication.md`, `docs/api/password-reset.md`, `AGENTS.md`, and this file
+
+Verification:
+
+- Loopback preflight confirmed the existing superadmin assignment count was 0 before migration.
+- `npm run db:migrate` applied migration 0013 successfully; the local Drizzle journal now has 14 entries.
+- Live verification confirmed the singleton primary key/check, user/role foreign keys, enabled `user_roles` trigger/function, and one assignment after bootstrap.
+- Database integration test attempted a second direct `user_roles` insertion and confirmed PostgreSQL rejected it with the singleton constraint. The fixture was removed afterward.
+- `npm run test:auth:integration`: passed, 28 tests.
+- `npm run test:auth`: passed, 7 tests.
+- `npm run test:email:integration`: passed, 5 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run db:generate`: passed with no ungenerated schema changes.
+- `npm run email:verify-smtp`: passed without sending; the authorized outbox run with `--limit 1` reported `processed=1, sent=1, retried=0, failed=0`. The outbox row was verified `sent` with one attempt.
+- No production build was run while the development server remained active.
+
+Recommended next action: check the inbox and Spam folder for the setup email, accept the link before it expires, and then test sign-in using the password set during acceptance. User/admin management UI remains a separate task.
+
+## 20. Password visibility and invitation confirmation UX
+
+- Added accessible show/hide controls to the sign-in password, new password, and confirmation password fields. Visibility is independent for each field and returns to hidden after successful form completion.
+- Invitation acceptance now displays a live mismatch message, marks the confirmation field invalid for assistive technology, and keeps submission disabled until both password values match. The existing submit-time equality check remains as a guard.
+- Password reset shares the password visibility controls, but retains its previous submit-time mismatch behavior; live matching is limited to the requested invitation flow.
+- No account or invitation was deleted or changed. The requested deletion is prohibited by the project rules. Awaiting confirmation before safely rerunning the bootstrap for the same still-invited account, which would revoke the old invitation and queue a replacement while preserving account/history records.
+
+Files changed for this task:
+
+- `src/components/auth/password-visibility-toggle.tsx`
+- `src/components/auth/sign-in-form.tsx`
+- `src/components/auth/credential-token-form.tsx`
+- This file
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed; Git reported existing LF/CRLF normalization warnings for `drizzle/meta/_journal.json` and `next.config.ts`.
+- Browser check on the local development server confirmed password visibility toggles and live invitation mismatch feedback. A mismatching invitation confirmation showed the message and kept submission disabled; matching values removed the message and enabled the button. A mismatched reset-password form retained its prior submit-time behavior. Neither form was submitted; fake tokens and test-only passwords were used.
+- No production build was run while the development server remained active.
+
+Recommended next action: confirm whether to revoke and reissue the pending superadmin invitation without deleting the account or historical records. Do not send another email until the replacement invitation is approved.
+
+## 21. Superadmin password-reset availability clarified
+
+- Confirmed that password-reset issuance has no role-based exclusion. Any active, email-verified account with an existing password is eligible, including a superadmin.
+- A read-only check of the loopback database found the singleton superadmin is active, email-verified, has a password, and has an accepted invitation. Forgot-password recovery is therefore already available for this account.
+- Updated `docs/api/password-reset.md` to document this eligibility and the 12-character minimum for admins and superadmins.
+- With the user's approval, attempted to reissue the setup invitation. The bootstrap command returned `already-exists` because the superadmin is no longer in the invited/no-password state; it made no account or invitation changes. No reset request or email was sent.
+- No production code or production data was changed.
+
+Verification:
+
+- Inspected `requestPasswordReset` eligibility: it checks active status, verified email, an existing password, and account type, with no role exclusion.
+- Inspected `getPasswordMinimumLength`: staff admins and superadmins both require at least 12 characters.
+- Read-only local database verification reported `status=active`, `hasPassword=true`, `emailVerified=true`, and invitation status `accepted`.
+- `npm run auth:bootstrap-superadmin -- --name "<name>" --email "<superadmin email>"`: refused reissue with `A superadmin account is already assigned`; no additional account was created.
+- No test was run because no behavior changed; a second superadmin cannot be added to the loopback database due to the singleton constraint.
+
+Recommended next action: if password recovery is needed, submit the superadmin email on the forgot-password page. The reset email remains subject to the existing outbox delivery configuration; no reset was requested or sent during this task.
+
+## 22. Forgot-password email delivery wired through the outbox
+
+- The forgot-password page was already posting to the request endpoint, which queued encrypted recovery links. The missing step was invoking the SMTP worker after an eligible request.
+- The request service now returns an internal `emailQueued` indicator; the API still returns the same generic `202` envelope for eligible and ineligible addresses.
+- When a request queues a reset email and `EMAIL_OUTBOX_ENABLED` is true, the route schedules a password-reset-only outbox batch with Next.js `after()`. Invitation messages are not processed by this trigger. The shared sending guard now treats `true` case-insensitively and preserves the remote-database gate.
+- The email worker remains the durable outbox processor; deployments without supported Next.js after-response work must schedule the worker separately.
+- One queued reset for the active superadmin was verified without reading its address or token, then sent with a one-message worker run. SMTP reported `processed=1, sent=1, retried=0, failed=0`. SMTP acceptance does not guarantee inbox placement; check Spam if needed.
+
+Files changed for this task:
+
+- `src/app/api/auth/password-reset/request/route.ts`
+- `src/lib/auth/password-reset.ts` and `src/lib/auth/password-reset.integration.test.ts`
+- `src/lib/email/outbox.ts`, `src/lib/email/outbox-config.ts`, `src/lib/email/password-reset-delivery.ts`, and `src/lib/email/outbox.integration.test.ts`
+- `src/scripts/process-email-outbox.ts`
+- `docs/api/password-reset.md`
+- This file
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npx tsx --test --test-concurrency=1 src/lib/auth/password-reset.integration.test.ts src/lib/email/outbox.integration.test.ts`: passed, 14 tests.
+- `npm run test:auth:integration`: 28 of 29 tests passed. The pre-existing bootstrap integration test expects an empty superadmin slot; it failed because the local database now contains the active singleton superadmin. No account data was changed by the failed test.
+- `npm run email:process-outbox -- --limit 1`: sent the single queued superadmin recovery email; no other queued email was processed.
+- Browser/API wiring is unchanged and the route integration test confirms the generic `202` response. No production build was run while the development server remained active.
+
+Recommended next action: check the inbox and Spam folder for the recovery email. Future eligible requests now trigger reset-only delivery after the response when outbox sending is enabled.
+
+## 23. Authenticated password change with email OTP
+
+- Implemented the approved authenticated password-change flow: current-password verification, a six-digit email code, code verification, then a new-password and confirmation form.
+- Reused `email_verification_tokens` with purpose `password_change`, `rate_limits`, `email_outbox`, and existing session/security-event tables. No schema change or migration was needed.
+- OTP codes expire after 10 minutes, are invalidated when replaced, and allow five incorrect attempts. They are stored as a keyed HMAC; the raw code exists only in the encrypted outbox payload. Successful OTP verification exchanges the OTP hash for a short-lived hashed proof token held in page memory.
+- Enforced the approved limits of 3 requests per account/hour and 10 per IP/15 minutes. Current-password failures also follow the existing staged login lockout policy.
+- Password completion is transactional: it revalidates the user, verified challenge, current session, and current role-based minimum; updates the password; clears failed-login lockout state; invalidates pending password-reset and password-change challenges; preserves the current session; revokes other active sessions; and writes a secret-free security event.
+- The email worker filter sends only password-change OTP messages for this trigger. Invitation and password-reset rows are not processed by it. Delivery is rejected before challenge creation if the outbox sending configuration does not permit sending.
+- Extracted the shared rate-limit bucket operation and reused it for password reset, preserving the existing per-email suppression and per-IP response behavior.
+- The user clarified that change password should not be linked from the sign-in page. Removed that link. A signed-in account/settings page does not exist yet, and the user chose to defer creating one; `/change-password` remains a protected direct route for now.
+
+Files changed for this task:
+
+- `AGENTS.md`, `PROJECT_PROGRESS.md`, `package.json`
+- `docs/api/authentication.md`, `docs/api/password-change.md`
+- `src/app/change-password/page.tsx`, `src/components/auth/change-password-form.tsx`, and `src/components/auth/sign-in-form.tsx`
+- `src/app/api/auth/password-change/request-otp/route.ts`, `src/app/api/auth/password-change/verify-otp/route.ts`, and `src/app/api/auth/password-change/complete/route.ts`
+- `src/lib/auth/active-request-session.ts`, `src/lib/auth/password-change.ts`, `src/lib/auth/password-change.integration.test.ts`, `src/lib/auth/rate-limit.ts`, and `src/lib/auth/response.ts`
+- `src/lib/auth/password-reset.ts` and `src/app/api/auth/password-reset/request/route.ts`
+- `src/lib/email/outbox.ts`, `src/lib/email/outbox-delivery.ts`, `src/lib/email/outbox.integration.test.ts`, and `src/lib/email/secret-payload.ts`
+
+Verification:
+
+- `npx tsx --test --test-concurrency=1 src/lib/auth/password-change.integration.test.ts src/lib/auth/password-reset.integration.test.ts src/lib/email/outbox.integration.test.ts`: passed, 22 tests.
+- `npm run test:auth`: passed, 7 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed. Git reported existing LF/CRLF normalization warnings for `drizzle/meta/_journal.json` and `next.config.ts`.
+- No production build was run because the Ololua Next.js development server is active and uses the same `.next` directory.
+- Integration email delivery used a fake sender; no OTP or other email was sent. Test fixtures were removed from the loopback development database.
+- No migration was generated or applied, and no production data was changed.
+
+Open items: Real SMTP delivery and inbox placement still depend on the approved development/production outbox configuration and sender review; no live OTP email was sent as part of this task. Account settings and navigation remain explicitly deferred.
+
+Recommended next action: when ready to test, run the password-change flow through the protected `/change-password` route with an authorized development account, after confirming the development email sender and `APP_ORIGIN`; this will send one real OTP email.
+
+## 24. Minimal authenticated dashboard and navigation shell
+
+- Added an empty `/dashboard` page protected by the active-session cookie.
+- Added a responsive left navigation drawer with Dashboard and Accounts > Change password.
+- Added sign-out to the shell using the existing logout Route Handler.
+- Updated successful sign-in to enter `/dashboard` instead of leaving the sign-in page in a success-only state.
+- Removed the intermediate "Signed in as..." confirmation screen; a successful login now navigates directly to the dashboard.
+- Updated `/change-password` to use the same dashboard shell and removed the stand-alone auth-card treatment.
+- Updated `/` to send authenticated users to `/dashboard` and unauthenticated users to `/sign-in`.
+- This is the first minimal dashboard shell; no dashboard business modules or account/settings module has been added.
+
+Files changed:
+
+- `src/app/page.tsx`
+- `src/app/dashboard/layout.tsx`
+- `src/app/dashboard/page.tsx`
+- `src/app/change-password/page.tsx`
+- `src/components/dashboard/dashboard-shell.tsx`
+- `src/components/auth/sign-in-form.tsx`
+- `AGENTS.md`
+- `this file`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- Unauthenticated smoke checks redirected `/dashboard`, `/change-password`, and `/` to `/sign-in` with HTTP 307.
+
+## 25. Dashboard blocking-prerender issue fixed
+
+- The dashboard showed a Next.js development overlay because `cacheComponents: true` is enabled and the dashboard routes read the session cookie through runtime request data.
+- Marked `/`, `/dashboard`, and `/change-password` as `instant = false`. This explicitly opts these user-specific routes out of instant-navigation prerender validation and allows them to render after the active request/session is known.
+- Public authentication and reset routes remain unchanged.
+
+Files changed:
+
+- `src/app/page.tsx`
+- `src/app/dashboard/layout.tsx`
+- `src/app/change-password/page.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- `/`, `/dashboard`, and `/change-password` each returned HTTP 307 `/sign-in` when the browser/session was unauthenticated.
+- No production build was run while the Next.js development server remained active.
+
+## 26. Password-change navigation and reauthentication
+
+- Replaced the change-password flow's sign-in return links with a single “Back to dashboard” link.
+- On successful password change, the form now clears its local password/OTP state and navigates directly to `/sign-in`.
+- Password completion now revokes every active session, including the session used to change the password, and the successful API response clears the session cookie. Error responses retain the renewed session cookie.
+- Updated the password-change API contract and integration expectation to document and verify reauthentication after completion.
+- No migration or database operation was performed for this behavior change.
+
+Files changed for this task:
+
+- `src/components/auth/change-password-form.tsx`
+- `src/app/api/auth/password-change/complete/route.ts`
+- `src/lib/auth/password-change.ts`
+- `src/lib/auth/password-change.integration.test.ts`
+- `docs/api/password-change.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed; Git reported existing LF-to-CRLF conversion warnings for `drizzle/meta/_journal.json` and `next.config.ts`.
+- `npx tsx --test --test-concurrency=1 src/lib/auth/password-change.integration.test.ts`: 6 behavior tests passed; the final fixture-cleanup assertion failed because it found 3 rows in the local `rate_limits` table. No rows were manually changed or deleted.
+- Browser verification was not performed, and no OTP email was sent.
+
+Recommended next action: investigate why the password-change integration fixture-cleanup assertion sees 3 rate-limit rows, without deleting database records, then verify the back-to-dashboard and post-change sign-in navigation in the browser.

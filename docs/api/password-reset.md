@@ -1,6 +1,6 @@
 # Password reset API contract
 
-**Status:** The confirmed API behavior, SMTP outbox delivery, and reset-password page are implemented.
+**Status:** The confirmed API behavior, SMTP outbox delivery, password-reset request page, and reset-password page are implemented.
 
 ## Scope
 
@@ -10,13 +10,19 @@ Password setup for invited users remains part of [invitations.md](./invitations.
 
 `EMAIL_OUTBOX_ENCRYPTION_KEY` must be configured to queue reset emails. The request handler validates it before checking account eligibility, so a missing key does not produce an account-dependent response.
 
+## Frontend pages
+
+- `GET /forgot-password` collects an email address and calls the request endpoint. For an accepted request, the UI must use the same generic confirmation regardless of account existence or eligibility. It does not disclose the submitted email.
+- `GET /reset-password?token=...` collects and confirms a new password, then calls the completion endpoint. The token must not be logged or persisted, and the query string is removed from browser history after success.
+- Email delivery is disabled by default. The request page should explain that a link is sent only when delivery is enabled; do not enable sending until `APP_ORIGIN` is reachable and sender deliverability is reviewed.
+- When sending is enabled, an eligible request schedules a password-reset-only outbox batch with Next.js `after()` after returning the generic response. SMTP failures remain subject to the outbox retry policy. Deployments without supported after-response work must schedule the outbox worker separately.
+
 ## Endpoints
 
 Both endpoints use JSON, the 16 KiB request-body cap, `Cache-Control: no-store`, the common response envelope, and the same CSRF checks required for state-changing requests:
 
 - `X-CSRF-Protection: 1`
 - `Origin` exactly matching `APP_ORIGIN`
-- `Sec-Fetch-Site: same-origin`
 
 ### `POST /api/auth/password-reset/request`
 
@@ -38,6 +44,8 @@ For syntactically valid email addresses, always return HTTP `202` with the same 
   }
 }
 ```
+
+Eligibility depends on account state, not staff role: the account must be active, email-verified, and already have a password. This includes superadmins. The initial superadmin must first accept the setup invitation and set a password; password reset cannot replace that initial setup. Admins and superadmins must use a password of at least 12 characters.
 
 This prevents the endpoint from revealing whether a person has an account. For an eligible account, create a cryptographically random 32-byte token, store only its SHA-256 hash in `password_reset_tokens.token_hash`, and place the raw token only in the encrypted email-outbox secret payload. The approved link is `${APP_ORIGIN}/reset-password?token=...`; the worker constructs this URL from `APP_ORIGIN`, the stored reset path, and the decrypted token. The page exists in the application, but keep real email sending disabled until `APP_ORIGIN` points to a reachable deployment and sender deliverability has been reviewed.
 
