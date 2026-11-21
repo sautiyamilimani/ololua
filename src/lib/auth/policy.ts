@@ -18,7 +18,7 @@ export function isRoleAllowedForAccountType(
     : roleKey !== "customer";
 }
 
-export function canManageInvitations(
+export function canManageStaffAccounts(
   accountType: AccountType,
   roleKeys: readonly string[],
 ): boolean {

@@ -4,7 +4,7 @@ import {
   getLockoutDurationMs,
   getPasswordMinimumLength,
   getSessionPolicy,
-  canManageInvitations,
+  canManageStaffAccounts,
   isRoleAllowedForAccountType,
 } from "./policy";
 
@@ -47,9 +47,9 @@ test("customer and staff role boundaries are kept separate", () => {
   assert.equal(isRoleAllowedForAccountType("staff", "customer"), false);
 });
 
-test("only staff administrators and superadministrators can manage invitations", () => {
-  assert.equal(canManageInvitations("staff", ["admin"]), true);
-  assert.equal(canManageInvitations("staff", ["superadmin"]), true);
-  assert.equal(canManageInvitations("staff", ["meter_reader"]), false);
-  assert.equal(canManageInvitations("customer", ["admin"]), false);
+test("only staff administrators and superadministrators can manage staff accounts", () => {
+  assert.equal(canManageStaffAccounts("staff", ["admin"]), true);
+  assert.equal(canManageStaffAccounts("staff", ["superadmin"]), true);
+  assert.equal(canManageStaffAccounts("staff", ["meter_reader"]), false);
+  assert.equal(canManageStaffAccounts("customer", ["admin"]), false);
 });

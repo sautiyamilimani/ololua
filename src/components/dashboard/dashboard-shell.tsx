@@ -7,13 +7,13 @@ import { useState, type ReactNode } from "react";
 type DashboardShellProps = {
   children: ReactNode;
   fullName: string;
-  canManageInvitations: boolean;
+  canManageStaffAccounts: boolean;
 };
 
 export function DashboardShell({
   children,
   fullName,
-  canManageInvitations,
+  canManageStaffAccounts,
 }: DashboardShellProps) {
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -92,8 +92,17 @@ export function DashboardShell({
                   </svg>
                 </summary>
                 <ul className="mt-1 space-y-1 border-l border-slate-200 pl-3 ml-3">
-                  {canManageInvitations && (
+                  {canManageStaffAccounts && (
                     <>
+                      <li>
+                        <Link
+                          className="flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-teal-50 hover:text-teal-900"
+                          href="/dashboard/accounts/users"
+                          onClick={() => setDrawerOpen(false)}
+                        >
+                          Manage users
+                        </Link>
+                      </li>
                       <li>
                         <Link
                           className="flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-teal-50 hover:text-teal-900"

@@ -1045,3 +1045,36 @@ Verification:
 - Browser verification was not performed.
 
 Recommended next action: verify open/close behavior at desktop and mobile widths in the browser.
+
+## 35. Read-only staff user directory
+
+- Added `/dashboard/accounts/users` for staff with the `admin` or `superadmin` role.
+- Added server-side name/email search and a bounded list of up to 100 newest matching staff accounts.
+- The list shows name, email, assigned or pending-invitation role, account status, and creation date. It does not display password, token, phone, or lockout data.
+- The page is read-only; suspend/disable, role changes, and other account actions remain out of scope.
+- Added a Manage users link to the admin-only Accounts navigation.
+- Renamed the shared role capability to `canManageStaffAccounts` because it now gates user directory access as well as invitation management.
+
+Files changed:
+
+- `src/app/dashboard/accounts/users/page.tsx`
+- `src/components/dashboard/dashboard-shell.tsx`
+- `src/lib/auth/policy.ts`
+- `src/lib/auth/policies.test.ts`
+- `src/lib/auth/session.ts`
+- `src/app/dashboard/layout.tsx`
+- `src/app/change-password/page.tsx`
+- `src/app/dashboard/accounts/invite/page.tsx`
+- `src/app/dashboard/accounts/invitations/page.tsx`
+- `src/app/api/auth/invitations/[invitationId]/revoke/route.ts`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npm run test:auth`: passed, 9 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- Browser/database directory smoke test was not performed.
+
+Recommended next action: confirm the directory fields and search behavior in the browser before separately approving account-changing actions.

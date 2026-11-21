@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { canManageInvitations } from "@/lib/auth/policy";
+import { canManageStaffAccounts } from "@/lib/auth/policy";
 import {
   accountSecurityEvents,
   emailOutbox,
@@ -56,7 +56,7 @@ export async function POST(
       .from(userRoles)
       .innerJoin(roles, eq(userRoles.roleId, roles.id))
       .where(eq(userRoles.userId, session.user.id));
-    const authorized = canManageInvitations(
+    const authorized = canManageStaffAccounts(
       "staff",
       roleRows.map((role) => role.roleKey),
     );

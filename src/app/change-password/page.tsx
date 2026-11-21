@@ -33,7 +33,7 @@ export default async function ChangePasswordPage() {
 
   return (
     <DashboardShell
-      canManageInvitations={session.canManageInvitations}
+      canManageStaffAccounts={session.canManageStaffAccounts}
       fullName={session.user.fullName}
     >
       <section

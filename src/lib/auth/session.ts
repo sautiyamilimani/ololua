@@ -9,7 +9,7 @@ import {
 } from "@/lib/db/schema";
 import { db } from "@/lib/db";
 import {
-  canManageInvitations,
+  canManageStaffAccounts,
   getSessionPolicy,
   isAccountType,
   type SessionPolicy,
@@ -23,7 +23,7 @@ type LoadedSession = {
   sessionId: string;
   user: AuthenticatedUser;
   policy: SessionPolicy;
-  canManageInvitations: boolean;
+  canManageStaffAccounts: boolean;
 };
 
 async function loadActiveSession(
@@ -98,7 +98,7 @@ async function loadActiveSession(
       accountType: user.accountType,
     },
     policy,
-    canManageInvitations: canManageInvitations(user.accountType, roleKeys),
+    canManageStaffAccounts: canManageStaffAccounts(user.accountType, roleKeys),
   };
 }
 

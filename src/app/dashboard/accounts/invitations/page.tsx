@@ -7,7 +7,7 @@ import {
   type InvitationListItem,
 } from "@/components/auth/manage-invitations";
 import { db } from "@/lib/db";
-import { canManageInvitations } from "@/lib/auth/policy";
+import { canManageStaffAccounts } from "@/lib/auth/policy";
 import {
   emailOutbox,
   invitations,
@@ -53,7 +53,7 @@ export default async function ManageInvitationsPage() {
     .innerJoin(roles, eq(userRoles.roleId, roles.id))
     .where(eq(userRoles.userId, session.user.id));
 
-  const authorized = canManageInvitations(
+  const authorized = canManageStaffAccounts(
     "staff",
     roleRows.map((role) => role.roleKey),
   );

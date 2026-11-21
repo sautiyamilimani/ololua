@@ -29,7 +29,7 @@ export default async function DashboardLayout({
 
   return (
     <DashboardShell
-      canManageInvitations={session.canManageInvitations}
+      canManageStaffAccounts={session.canManageStaffAccounts}
       fullName={session.user.fullName}
     >
       {children}

@@ -6,7 +6,7 @@ import { InviteUserForm } from "@/components/auth/invite-user-form";
 import { db } from "@/lib/db";
 import { roles, userRoles, users } from "@/lib/db/schema";
 import { getActiveSession } from "@/lib/auth/session";
-import { canManageInvitations } from "@/lib/auth/policy";
+import { canManageStaffAccounts } from "@/lib/auth/policy";
 import {
   isValidSessionToken,
   SESSION_COOKIE_NAME,
@@ -46,7 +46,7 @@ export default async function InviteUserPage() {
     .where(eq(users.id, session.user.id));
 
   const roleKeys = roleRows.map((role) => role.roleKey);
-  const authorized = canManageInvitations("staff", roleKeys);
+  const authorized = canManageStaffAccounts("staff", roleKeys);
 
   if (!authorized) {
     return (
