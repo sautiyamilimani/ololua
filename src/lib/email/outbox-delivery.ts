@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { assertEmailOutboxSendingEnabled } from "./outbox-config";
-import { processEmailOutboxBatch } from "./outbox";
+import { processEmailOutboxBatch, type EmailTemplateKey } from "./outbox";
 import { createGmailSmtpSender, getSmtpConfiguration } from "./smtp";
 
 export async function sendPendingOutboxEmails(
-  templateKey: "invitation" | "password_reset" | "password_change_otp",
+  templateKey: EmailTemplateKey,
 ) {
   assertEmailOutboxSendingEnabled();
   const configuration = getSmtpConfiguration();

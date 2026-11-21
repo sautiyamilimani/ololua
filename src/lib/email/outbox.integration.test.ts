@@ -32,7 +32,7 @@ function assertLocalDatabase(): void {
 async function createOutboxRow(options: {
   templateKey: string;
   templateData: Record<string, unknown> | null;
-  secretPayload?: Record<string, unknown>;
+  secretPayload?: Record<string, unknown> | null;
   attempts?: number;
   maxAttempts?: number;
 }): Promise<{ id: string; token: string }> {
@@ -48,9 +48,10 @@ async function createOutboxRow(options: {
     recipientEmail: `outbox-test-${id}@example.test`,
     templateKey: options.templateKey,
     templateData: options.templateData,
-    secretPayloadEncrypted: encryptSecretPayload(
-      JSON.stringify(options.secretPayload ?? { token }),
-    ),
+    secretPayloadEncrypted:
+      options.secretPayload === null
+        ? null
+        : encryptSecretPayload(JSON.stringify(options.secretPayload ?? { token })),
     status: "queued",
     attempts: options.attempts ?? 0,
     maxAttempts: options.maxAttempts ?? 5,
@@ -145,6 +146,64 @@ test("the worker renders and sends invitation and reset messages without real SM
   assert.ok(rows.every((row) => row.status === "sent" && row.attempts === 1));
   assert.ok(rows.every((row) => row.providerMessageId !== null));
   assert.ok(rows.every((row) => row.lockedBy === null && row.lockedUntil === null));
+});
+
+test("the worker sends the suspension notice without a secret payload", async () => {
+  const suspension = await createOutboxRow({
+    templateKey: "staff_account_suspended",
+    templateData: { fullName: "Suspension Test" },
+    secretPayload: null,
+  });
+  const messages: OutgoingEmail[] = [];
+  const sender: EmailSender = {
+    async sendMail(message) {
+      messages.push(message);
+      return { messageId: message.messageId };
+    },
+  };
+
+  const result = await processEmailOutboxBatch(sender, {
+    workerId: "outbox-suspension-worker",
+    limit: 1,
+    fromAddress: "sender@example.test",
+    templateKey: "staff_account_suspended",
+  });
+
+  assert.deepEqual(result, { processed: 1, sent: 1, retried: 0, failed: 0 });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.to, `outbox-test-${suspension.id}@example.test`);
+  assert.match(messages[0]?.subject ?? "", /account is suspended/u);
+  assert.match(messages[0]?.text ?? "", /contact Ololua Water Services support/u);
+  assert.match(messages[0]?.text ?? "", /system administrator/u);
+});
+
+test("the worker sends the reactivation notice without a secret payload", async () => {
+  const reactivation = await createOutboxRow({
+    templateKey: "staff_account_reactivated",
+    templateData: { fullName: "Reactivation Test" },
+    secretPayload: null,
+  });
+  const messages: OutgoingEmail[] = [];
+  const sender: EmailSender = {
+    async sendMail(message) {
+      messages.push(message);
+      return { messageId: message.messageId };
+    },
+  };
+
+  const result = await processEmailOutboxBatch(sender, {
+    workerId: "outbox-reactivation-worker",
+    limit: 1,
+    fromAddress: "sender@example.test",
+    templateKey: "staff_account_reactivated",
+  });
+
+  assert.deepEqual(result, { processed: 1, sent: 1, retried: 0, failed: 0 });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.to, `outbox-test-${reactivation.id}@example.test`);
+  assert.match(messages[0]?.subject ?? "", /account has been reactivated/u);
+  assert.match(messages[0]?.text ?? "", /sign in again/u);
+  assert.match(messages[0]?.text ?? "", /contact Ololua Water Services support/u);
 });
 
 test("the password-reset worker filter leaves invitation messages queued", async () => {

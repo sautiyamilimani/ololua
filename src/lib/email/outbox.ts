@@ -33,6 +33,13 @@ export type OutgoingEmail = {
   messageId: string;
 };
 
+export type EmailTemplateKey =
+  | "invitation"
+  | "password_reset"
+  | "password_change_otp"
+  | "staff_account_suspended"
+  | "staff_account_reactivated";
+
 export type EmailSender = {
   sendMail(message: OutgoingEmail): Promise<{ messageId?: string | null }>;
 };
@@ -99,15 +106,25 @@ function buildMessage(
     throw new PermanentEmailError("Email recipient address is invalid.");
   }
 
-  if (!row.secretPayloadEncrypted) {
-    throw new PermanentEmailError("Email secret payload is missing.");
-  }
+  let secret: unknown = {};
+  const isAccountStatusNotice =
+    row.templateKey === "staff_account_suspended" ||
+    row.templateKey === "staff_account_reactivated";
 
-  let secret: unknown;
-  try {
-    secret = JSON.parse(decryptSecretPayload(row.secretPayloadEncrypted));
-  } catch {
-    throw new PermanentEmailError("Email secret payload is invalid.");
+  if (isAccountStatusNotice) {
+    if (row.secretPayloadEncrypted !== null) {
+      throw new PermanentEmailError("Suspension email must not have a secret payload.");
+    }
+  } else {
+    if (!row.secretPayloadEncrypted) {
+      throw new PermanentEmailError("Email secret payload is missing.");
+    }
+
+    try {
+      secret = JSON.parse(decryptSecretPayload(row.secretPayloadEncrypted));
+    } catch {
+      throw new PermanentEmailError("Email secret payload is invalid.");
+    }
   }
 
   if (!isRecord(secret)) {
@@ -122,7 +139,26 @@ function buildMessage(
   let subject: string;
   let text: string;
 
-  if (row.templateKey === "password_change_otp") {
+  if (row.templateKey === "staff_account_suspended") {
+    subject = "Your Ololua Water Services account is suspended";
+    text = [
+      `Hello ${fullName},`,
+      "",
+      "Your Ololua Water Services account has been suspended, and you can no longer sign in.",
+      "Please contact Ololua Water Services support or your system administrator for assistance.",
+      "Ololua Water Services",
+    ].join("\n");
+  } else if (row.templateKey === "staff_account_reactivated") {
+    subject = "Your Ololua Water Services account has been reactivated";
+    text = [
+      `Hello ${fullName},`,
+      "",
+      "Your Ololua Water Services account has been reactivated.",
+      "You can sign in again using your account credentials. Previous sessions remain revoked.",
+      "If you did not expect this change, please contact Ololua Water Services support or your system administrator.",
+      "Ololua Water Services",
+    ].join("\n");
+  } else if (row.templateKey === "password_change_otp") {
     const otp = typeof secret.otp === "string" ? secret.otp : undefined;
 
     if (!otp || !/^\d{6}$/u.test(otp)) {
@@ -211,7 +247,7 @@ function buildMessage(
 
 async function claimNextEmail(
   workerId: string,
-  templateKey?: "invitation" | "password_reset" | "password_change_otp",
+  templateKey?: EmailTemplateKey,
 ): Promise<ClaimedEmail | null> {
   const now = new Date();
   const lockExpiresAt = new Date(now.getTime() + CLAIM_LEASE_MS);
@@ -373,7 +409,7 @@ export async function processEmailOutboxBatch(
     workerId?: string;
     limit?: number;
     fromAddress: string;
-    templateKey?: "invitation" | "password_reset" | "password_change_otp";
+    templateKey?: EmailTemplateKey;
   },
 ): Promise<OutboxBatchResult> {
   assertSecretPayloadEncryptionConfigured();

@@ -4,6 +4,7 @@ import {
   getLockoutDurationMs,
   getPasswordMinimumLength,
   getSessionPolicy,
+  canChangeStaffAccountStatus,
   canManageStaffAccounts,
   isRoleAllowedForAccountType,
 } from "./policy";
@@ -52,4 +53,40 @@ test("only staff administrators and superadministrators can manage staff account
   assert.equal(canManageStaffAccounts("staff", ["superadmin"]), true);
   assert.equal(canManageStaffAccounts("staff", ["meter_reader"]), false);
   assert.equal(canManageStaffAccounts("customer", ["admin"]), false);
+});
+
+test("staff status changes follow admin and superadmin boundaries", () => {
+  assert.equal(
+    canChangeStaffAccountStatus("admin-1", ["admin"], "reader-1", ["meter_reader"]),
+    true,
+  );
+  assert.equal(
+    canChangeStaffAccountStatus("admin-1", ["admin"], "admin-2", ["admin"]),
+    false,
+  );
+  assert.equal(
+    canChangeStaffAccountStatus("admin-1", ["admin"], "superadmin-1", ["superadmin"]),
+    false,
+  );
+  assert.equal(
+    canChangeStaffAccountStatus("superadmin-1", ["superadmin"], "admin-1", ["admin"]),
+    true,
+  );
+  assert.equal(
+    canChangeStaffAccountStatus("superadmin-1", ["superadmin"], "reader-1", ["meter_reader"]),
+    true,
+  );
+  assert.equal(
+    canChangeStaffAccountStatus(
+      "superadmin-1",
+      ["superadmin"],
+      "superadmin-2",
+      ["superadmin"],
+    ),
+    false,
+  );
+  assert.equal(
+    canChangeStaffAccountStatus("admin-1", ["admin"], "admin-1", ["admin"]),
+    false,
+  );
 });

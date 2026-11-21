@@ -1078,3 +1078,224 @@ Verification:
 - Browser/database directory smoke test was not performed.
 
 Recommended next action: confirm the directory fields and search behavior in the browser before separately approving account-changing actions.
+
+## 36. Read-only staff account details
+
+- Added `/dashboard/accounts/users/[userId]`, reachable by selecting a staff member in the user directory.
+- Restricted the page to active staff sessions with the `admin` or `superadmin` role.
+- Shows the staff member's name, email, account type/status, email verification state, assigned or pending-invitation role, and creation/update dates.
+- Excludes phone numbers, password/session/token data, failed-login counters, and lockout details.
+- Added no account mutations, API endpoint, schema change, or database write.
+
+Files changed:
+
+- `src/app/dashboard/accounts/users/page.tsx`
+- `src/app/dashboard/accounts/users/[userId]/page.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npm run test:auth`: passed, 9 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- Browser verification was not performed.
+
+Recommended next action: review the details page in the browser, then separately approve any staff account actions such as suspension or role changes.
+
+## 37. Staff suspension/reactivation policy confirmed
+
+- Admins may suspend/reactivate staff accounts without the `admin` or `superadmin` role.
+- Superadmins may suspend/reactivate any staff account except one with the `superadmin` role.
+- Admins and superadmins may not change their own account status.
+- Suspension revokes all active sessions. Reactivation does not restore revoked sessions; the account must sign in again.
+- Only `active` <-> `suspended` transitions are in scope. Invited/disabled account changes, deletion, and role changes remain out of scope.
+- Updated the authentication contract to preserve this confirmed policy. No endpoint or account-changing UI was implemented in this policy-definition task.
+
+Files changed:
+
+- `docs/api/authentication.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- Documentation-only change; no code checks run.
+
+Recommended next action: implement the approved suspension/reactivation endpoint and admin UI with transactional status changes, session revocation, and audit events.
+
+## 38. Staff suspension and reactivation
+
+- Added `PATCH /api/admin/users/[userId]/status` for `active` <-> `suspended` transitions.
+- Revalidates and locks the actor's current session and user in the transaction, then re-reads actor/target roles and locks the target user before applying the confirmed authority policy.
+- Suspension updates account status, revokes all currently active target sessions, and writes a secret-free security event atomically.
+- Reactivation sets status to active but does not restore sessions; users must sign in again.
+- Added suspend/reactivate controls to eligible staff account detail pages. The UI confirms the operation and does not show controls for self, superadmin targets, admin targets viewed by admins, invited accounts, or disabled accounts.
+- Added the status API contract and explicit conflict responses. No schema change or migration was needed.
+
+Files changed:
+
+- `src/lib/auth/policy.ts`
+- `src/lib/auth/policies.test.ts`
+- `src/lib/auth/staff-account-status.ts`
+- `src/lib/auth/staff-account-status.integration.test.ts`
+- `src/app/api/admin/users/[userId]/status/route.ts`
+- `src/app/dashboard/accounts/users/[userId]/page.tsx`
+- `src/components/auth/staff-account-status-control.tsx`
+- `src/lib/auth/response.ts`
+- `package.json`
+- `docs/api/user-management.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsx --test --test-concurrency=1 src/lib/auth/staff-account-status.integration.test.ts`: passed, 4 tests against the loopback development database; fixtures were cleaned up.
+- `npm run test:auth`: passed, 10 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed with no warnings.
+- `git diff --check`: passed.
+- Production build and authenticated browser verification were not run; the development server is listening on port 3000.
+
+Recommended next action: browser-test suspension as an admin against a non-admin staff account, then test the superadmin/admin boundary and reactivation with approved accounts.
+
+## 39. User identity and semantic badges
+
+- Added a “You” badge beside the signed-in user's name in the staff directory and their account detail heading.
+- Added semantic color badges for all account statuses (`invited`, `active`, `suspended`, `disabled`) and staff roles (`superadmin`, `admin`, `billing_officer`, `meter_reader`, with a neutral fallback).
+- Reused the same badge components in the directory and account details so labels have consistent colors.
+
+Files changed:
+
+- `src/components/auth/account-badges.tsx`
+- `src/app/dashboard/accounts/users/page.tsx`
+- `src/app/dashboard/accounts/users/[userId]/page.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- Browser verification was not performed.
+
+Recommended next action: review the badge colors and “You” marker in the browser.
+
+## 40. Suspended sign-in guidance
+
+- Added `403 ACCOUNT_SUSPENDED` with support/administrator guidance only when the submitted password matches an email-verified suspended account that is not currently locked.
+- Unknown emails, incorrect passwords, locked accounts, and unverified accounts continue to receive generic `401 INVALID_CREDENTIALS`.
+- Added a secret-free `login_suspended` security event; no session is created for the suspended account.
+- Updated the sign-in form and authentication contract to explain the behavior.
+
+Files changed:
+
+- `src/lib/auth/login.ts`
+- `src/app/api/auth/login/route.ts`
+- `src/lib/auth/response.ts`
+- `src/components/auth/sign-in-form.tsx`
+- `src/lib/auth/login.integration.test.ts`
+- `package.json`
+- `docs/api/authentication.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsx --test --test-concurrency=1 src/lib/auth/login.integration.test.ts`: passed, 2 tests against the loopback development database; fixtures were cleaned up.
+- `npm run test:auth`: passed, 10 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+
+Recommended next action: test the sign-in message in the browser with an approved suspended test account; do not use a production user's credentials.
+
+## 41. Navigate to dashboard after invitation acceptance
+
+- After the invitation API confirms successful acceptance and creates the session, the acceptance form now routes directly to `/dashboard`.
+- The existing auto-login behavior is preserved; password-reset completion still displays its sign-in guidance.
+- Updated the invitation contract to document the post-acceptance navigation.
+
+Files changed:
+
+- `src/components/auth/credential-token-form.tsx`
+- `docs/api/invitations.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git --no-pager diff --check`: passed.
+- Browser verification was not performed; it requires an approved test invitation.
+
+Recommended next action: accept an approved test invitation in the browser and confirm the user reaches the authenticated dashboard.
+
+## 42. Queue suspension email notification
+
+- Suspending a staff account now queues a notice to that account's email in the same transaction as the status change, session revocation, and audit event.
+- After commit, the status Route Handler attempts immediate delivery using the existing SMTP outbox. If sending is disabled or unavailable, the suspension remains successful and the message stays queued for configured worker retries.
+- Added a secret-free `staff_account_suspended` template explaining that the user should contact Ololua Water Services support or their system administrator.
+- The admin status control confirms that the email notification was queued. No schema change or migration was needed.
+
+Files changed:
+
+- `src/lib/auth/staff-account-status.ts`
+- `src/app/api/admin/users/[userId]/status/route.ts`
+- `src/components/auth/staff-account-status-control.tsx`
+- `src/lib/email/outbox.ts`
+- `src/lib/email/outbox-delivery.ts`
+- `src/lib/auth/staff-account-status.integration.test.ts`
+- `src/lib/email/outbox.integration.test.ts`
+- `docs/api/user-management.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsx --test --test-concurrency=1 src/lib/auth/staff-account-status.integration.test.ts src/lib/email/outbox.integration.test.ts`: passed, 12 tests against the loopback development database; test fixtures were cleaned up.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git --no-pager diff --check`: passed.
+- Real SMTP delivery was not attempted; the existing email-send configuration gates remain in force.
+
+Recommended next action: verify the notice in the browser using a loopback test account after confirming email sending is configured and safe for that environment.
+
+## 43. Queue reactivation email notification
+
+- Reactivating a staff account now queues a `staff_account_reactivated` message to the user's account email in the same transaction as the reactivation and audit event.
+- After commit, the Route Handler attempts delivery through the existing SMTP outbox. Sending remains subject to the existing configuration gates and retry worker.
+- The email says the user can sign in again, notes that prior sessions remain revoked, and directs them to support/admin if the reactivation was unexpected.
+- Updated the admin status control and user-management contract. No schema change or migration was needed.
+
+Files changed:
+
+- `src/lib/auth/staff-account-status.ts`
+- `src/app/api/admin/users/[userId]/status/route.ts`
+- `src/components/auth/staff-account-status-control.tsx`
+- `src/lib/email/outbox.ts`
+- `src/lib/auth/staff-account-status.integration.test.ts`
+- `src/lib/email/outbox.integration.test.ts`
+- `docs/api/user-management.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsx --test --test-concurrency=1 src/lib/auth/staff-account-status.integration.test.ts src/lib/email/outbox.integration.test.ts`: passed, 13 tests against the loopback development database; test fixtures were cleaned up.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git --no-pager diff --check`: passed.
+- Real SMTP delivery was not attempted; the existing email-send configuration gates remain in force.
+
+Recommended next action: verify suspension and reactivation notices in the browser with approved development accounts after confirming email delivery is safely configured.
+
+## 44. Simplify invitation drawer label
+
+- Changed the dashboard drawer label from “Invite staff user” to “Invite user”; the invitation page and form labels are unchanged.
+
+Files changed:
+
+- `src/components/dashboard/dashboard-shell.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `git --no-pager diff --check`: passed.
+
+Recommended next action: continue with the approved account-management browser checks.

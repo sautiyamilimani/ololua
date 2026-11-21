@@ -28,6 +28,26 @@ export function canManageStaffAccounts(
   );
 }
 
+export function canChangeStaffAccountStatus(
+  actorId: string,
+  actorRoleKeys: readonly string[],
+  targetId: string,
+  targetRoleKeys: readonly string[],
+): boolean {
+  if (actorId === targetId || targetRoleKeys.includes("superadmin")) {
+    return false;
+  }
+
+  const isSuperadmin = actorRoleKeys.includes("superadmin");
+  const isAdmin = actorRoleKeys.includes("admin");
+
+  if (!isSuperadmin && !isAdmin) {
+    return false;
+  }
+
+  return isSuperadmin || !targetRoleKeys.includes("admin");
+}
+
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;

@@ -51,13 +51,23 @@ Error responses:
 }
 ```
 
-Error messages must not disclose whether an email address exists, whether its account is locked, or other internal account state. Responses and logs must never contain passwords, raw session tokens, password hashes, or token hashes. All state-changing requests must pass the CSRF checks below.
+Error messages must not disclose whether an email address exists, whether its account is locked, or other internal account state. The specific suspended-account response below is returned only after the supplied password is verified and the account is email-verified and not currently locked. Responses and logs must never contain passwords, raw session tokens, password hashes, or token hashes. All state-changing requests must pass the CSRF checks below.
 
 ## Confirmed authentication policies
 
 ### Sign-in eligibility and lockout
 
-Only users with `status = active` and a verified email may sign in. Unknown emails, incorrect passwords, locked accounts, inactive accounts, and unverified accounts all receive the same generic `401 INVALID_CREDENTIALS` response.
+Only users with `status = active` and a verified email may sign in. Unknown emails, incorrect passwords, locked accounts, and unverified accounts receive the same generic `401 INVALID_CREDENTIALS` response. For an email-verified, unlocked suspended account, the server verifies the supplied password first; a correct password receives `403 ACCOUNT_SUSPENDED` with directions to contact Ololua support or an administrator. A wrong password for a suspended account still receives the generic response.
+
+### Staff suspension and reactivation policy
+
+The confirmed staff status-management policy is:
+
+- Admins may suspend or reactivate staff accounts that do not have the `admin` or `superadmin` role.
+- Superadmins may suspend or reactivate any staff account except an account with the `superadmin` role.
+- Neither admins nor superadmins may change their own account status.
+- Suspension revokes all active sessions for the affected user. Reactivation changes `suspended` back to `active`; it does not restore revoked sessions, so the user must sign in again.
+- This policy covers only `active` to `suspended` and `suspended` to `active`. Invited and disabled accounts, deletion, and role changes are outside its scope.
 
 For consecutive failed sign-in attempts on an account:
 

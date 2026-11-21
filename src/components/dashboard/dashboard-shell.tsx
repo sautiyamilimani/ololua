@@ -118,7 +118,7 @@ export function DashboardShell({
                           href="/dashboard/accounts/invite"
                           onClick={() => setDrawerOpen(false)}
                         >
-                          Invite staff user
+                          Invite user
                         </Link>
                       </li>
                     </>

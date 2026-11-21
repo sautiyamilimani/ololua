@@ -83,7 +83,8 @@ The row lock makes concurrent acceptance attempts safe: only one can change a pe
 2. Acceptance changes the invited user to `active`.
 3. Acceptance assigns the invitation role, subject to the confirmed account-type boundary: staff roles for staff accounts and only `customer` for customer accounts.
 4. Acceptance creates a session and sets the session cookie; no separate sign-in is required.
-5. Password minimums and session timeouts follow `authentication.md`.
+5. After successful acceptance, the page navigates directly to `/dashboard` using the newly created session.
+6. Password minimums and session timeouts follow `authentication.md`.
 
 ### Issuance
 

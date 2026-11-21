@@ -25,11 +25,14 @@ export type AuthenticatedUser = {
   accountType: AccountType;
 };
 
-export type LoginResult = {
-  user: AuthenticatedUser;
-  token: string;
-  sessionPolicy: SessionPolicy;
-};
+export type LoginResult =
+  | {
+      kind: "authenticated";
+      user: AuthenticatedUser;
+      token: string;
+      sessionPolicy: SessionPolicy;
+    }
+  | { kind: "suspended" };
 
 async function writeSecurityEvent(
   transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
@@ -38,7 +41,7 @@ async function writeSecurityEvent(
     email: string;
     userAgent: string | null;
     requestId: string;
-    eventType: "login_succeeded" | "login_failed";
+    eventType: "login_succeeded" | "login_failed" | "login_suspended";
   },
 ): Promise<void> {
   await transaction.insert(accountSecurityEvents).values({
@@ -94,6 +97,24 @@ export async function authenticate(
 
     if (
       passwordMatches &&
+      user.status === "suspended" &&
+      user.emailVerifiedAt !== null &&
+      isAccountType(user.accountType) &&
+      !isLocked
+    ) {
+      await writeSecurityEvent(transaction, {
+        userId: user.id,
+        email,
+        userAgent: normalizedUserAgent,
+        requestId,
+        eventType: "login_suspended",
+      });
+
+      return { kind: "suspended" };
+    }
+
+    if (
+      passwordMatches &&
       user.status === "active" &&
       user.emailVerifiedAt !== null &&
       isAccountType(user.accountType) &&
@@ -144,6 +165,7 @@ export async function authenticate(
       });
 
       return {
+        kind: "authenticated",
         user: {
           id: user.id,
           fullName: user.fullName,

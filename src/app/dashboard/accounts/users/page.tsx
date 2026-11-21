@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
@@ -10,6 +11,11 @@ import {
   inArray,
   or,
 } from "drizzle-orm";
+import {
+  AccountStatusBadge,
+  StaffRoleBadge,
+  YouBadge,
+} from "@/components/auth/account-badges";
 import { db } from "@/lib/db";
 import {
   invitations,
@@ -34,6 +40,13 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
   robots: { index: false, follow: false },
 };
+
+function formatDate(value: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeZone: "Africa/Nairobi",
+  }).format(value);
+}
 
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/gu, "\\$&");
@@ -113,6 +126,7 @@ export default async function ManageUsersPage({
           db
             .select({
               userId: userRoles.userId,
+              roleKey: roles.roleKey,
               roleName: roles.displayName,
             })
             .from(userRoles)
@@ -121,6 +135,7 @@ export default async function ManageUsersPage({
           db
             .select({
               userId: invitations.userId,
+              roleKey: roles.roleKey,
               roleName: roles.displayName,
             })
             .from(invitations)
@@ -134,18 +149,21 @@ export default async function ManageUsersPage({
             ),
         ]);
 
-  const roleNamesByUser = new Map<string, Set<string>>();
+  const rolesByUser = new Map<
+    string,
+    Map<string, { roleKey: string; roleName: string }>
+  >();
 
   for (const role of assignedRoleRows) {
-    const roleNames = roleNamesByUser.get(role.userId) ?? new Set<string>();
-    roleNames.add(role.roleName);
-    roleNamesByUser.set(role.userId, roleNames);
+    const userRoles = rolesByUser.get(role.userId) ?? new Map();
+    userRoles.set(role.roleKey, role);
+    rolesByUser.set(role.userId, userRoles);
   }
 
   for (const invitation of pendingInvitationRoleRows) {
-    const roleNames = roleNamesByUser.get(invitation.userId) ?? new Set<string>();
-    roleNames.add(`${invitation.roleName} (invited)`);
-    roleNamesByUser.set(invitation.userId, roleNames);
+    const userRoles = rolesByUser.get(invitation.userId) ?? new Map();
+    userRoles.set(invitation.roleKey, invitation);
+    rolesByUser.set(invitation.userId, userRoles);
   }
 
   return (
@@ -217,19 +235,34 @@ export default async function ManageUsersPage({
                     key={user.id}
                   >
                     <td className="px-3 py-4 font-semibold text-slate-950">
-                      {user.fullName}
+                      <Link
+                        className="text-teal-900 underline-offset-4 hover:underline"
+                        href={`/dashboard/accounts/users/${user.id}`}
+                      >
+                        {user.fullName}
+                      </Link>
+                      {user.id === session.user.id && <YouBadge />}
                     </td>
                     <td className="px-3 py-4">{user.email}</td>
                     <td className="px-3 py-4">
-                      {[...(roleNamesByUser.get(user.id) ?? [])].join(", ") || "—"}
+                      <div className="flex flex-wrap gap-1.5">
+                        {[...(rolesByUser.get(user.id)?.values() ?? [])].map(
+                          (role) => (
+                            <StaffRoleBadge
+                              key={role.roleKey}
+                              roleKey={role.roleKey}
+                              roleName={role.roleName}
+                            />
+                          ),
+                        )}
+                        {rolesByUser.has(user.id) ? null : "—"}
+                      </div>
                     </td>
                     <td className="px-3 py-4">
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold capitalize">
-                        {user.status}
-                      </span>
+                      <AccountStatusBadge status={user.status} />
                     </td>
                     <td className="px-3 py-4">
-                      {user.createdAt.toISOString().slice(0, 10)}
+                      {formatDate(user.createdAt)}
                     </td>
                   </tr>
                 ))}

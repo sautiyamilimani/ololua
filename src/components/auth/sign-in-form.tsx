@@ -59,6 +59,10 @@ function getAuthenticatedUser(
 }
 
 function getErrorMessage(code: string | null): string {
+  if (code === "ACCOUNT_SUSPENDED") {
+    return "Your account is suspended. Contact Ololua support or an administrator for assistance.";
+  }
+
   if (code === "INVALID_CREDENTIALS") {
     return "Email or password is incorrect.";
   }

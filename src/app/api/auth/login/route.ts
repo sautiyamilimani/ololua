@@ -60,6 +60,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       return errorResponse(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
     }
 
+    if (login.kind === "suspended") {
+      return errorResponse(
+        403,
+        "ACCOUNT_SUSPENDED",
+        "Your account is suspended. Contact Ololua support or an administrator for assistance.",
+      );
+    }
+
     const response = successResponse({ user: login.user });
     setSessionCookie(response, login.token, login.sessionPolicy);
 

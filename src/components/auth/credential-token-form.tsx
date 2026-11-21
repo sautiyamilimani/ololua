@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { PasswordVisibilityToggle } from "./password-visibility-toggle";
 
 type CredentialTokenFormProps = {
@@ -72,6 +73,7 @@ export function CredentialTokenForm({
   flow,
   token,
 }: CredentialTokenFormProps) {
+  const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -155,8 +157,14 @@ export function CredentialTokenForm({
     setConfirmation("");
     setPasswordVisible(false);
     setConfirmationVisible(false);
-    setState({ kind: "success", message: getSuccessMessage(flow) });
     window.history.replaceState(null, "", window.location.pathname);
+
+    if (isInvitation) {
+      router.replace("/dashboard");
+      return;
+    }
+
+    setState({ kind: "success", message: getSuccessMessage(flow) });
   }
 
   if (!token) {
