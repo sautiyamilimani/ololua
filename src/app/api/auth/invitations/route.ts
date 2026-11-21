@@ -12,6 +12,7 @@ import {
   SESSION_COOKIE_NAME,
   setSessionCookie,
 } from "@/lib/auth/session-token";
+import { sendPendingOutboxEmails } from "@/lib/email/outbox-delivery";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -116,11 +117,22 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
 
+    let emailSent = false;
+
+    try {
+      const delivery = await sendPendingOutboxEmails("invitation");
+      emailSent = delivery.sent > 0;
+    } catch (error) {
+      const errorType = error instanceof Error ? error.name : "UnknownError";
+      console.error(`[auth.invitation.issue] Immediate email delivery was unavailable (${errorType}).`);
+    }
+
     const response = successResponse(
       {
         invitationId: result.invitationId,
         expiresAt: result.expiresAt.toISOString(),
         emailQueued: true,
+        emailSent,
       },
       202,
     );

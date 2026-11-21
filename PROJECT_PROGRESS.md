@@ -899,3 +899,149 @@ Verification:
 - Production build: not run because the development server was listening on port 3000; avoid competing Next.js build output.
 
 Recommended next action: no further LAN-origin change is needed unless the machine's network address changes; if it does, update the local `APP_ORIGIN` and this development-origin allowlist together.
+
+## 29. Staff user invitation page
+
+- Added a protected staff-invitation page at `/dashboard/accounts/invite`.
+- Added an invitation form for full name, email address, and one allowed staff role: Meter Reader, Billing Officer, or Administrator.
+- Reused `POST /api/auth/invitations`; the page does not create accounts or send email directly.
+- Added an Accounts navigation link and an explicit administrator/superadministrator authorization check in the page.
+- Customer invitation UI is deferred until a separate approved customer-selection task.
+
+Files changed:
+
+- `src/app/dashboard/accounts/invite/page.tsx`
+- `src/components/auth/invite-user-form.tsx`
+- `src/components/dashboard/dashboard-shell.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- No browser invitation flow was run and no real email was sent.
+
+Recommended next action: add the customer invitation slice or a staff/customer account-list view, but require separate scope approval before choosing the next module.
+
+## 30. Invitation delivery diagnosis and management
+
+- Diagnosed the missing-inbox report from the live development database.
+- Found one pending invitation with one invitation email in `queued` status and zero delivery attempts.
+- Confirmed other recent invitation history is present; one prior invitation was revoked and one was accepted.
+- Added `/dashboard/accounts/invitations` for administrators and superadministrators.
+- The page shows invitation status, email delivery status, sent time, expiry, and pending resend/revoke actions.
+- Resend reuses `POST /api/auth/invitations`, which atomically replaces the prior pending token and queued email.
+- Added `POST /api/auth/invitations/[invitationId]/revoke` to revoke a pending invitation and mark its queued email as failed.
+
+Files changed:
+
+- `src/app/dashboard/accounts/invitations/page.tsx`
+- `src/components/auth/manage-invitations.tsx`
+- `src/components/dashboard/dashboard-shell.tsx`
+- `src/app/api/auth/invitations/[invitationId]/revoke/route.ts`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- Database diagnosis: the pending invitation outbox row is `queued`, attempts `0`, and has no `sentAt` value.
+- No invitation email was sent during this task.
+
+Recommended next action: confirm whether to run the outbox worker once for the existing queued invitation. Sending should be tested only with the confirmed reachable origin and recipient address.
+
+## 31. Automatic invitation email delivery
+
+- Updated `POST /api/auth/invitations` to make an immediate attempt to send queued invitation email after the issuance transaction commits.
+- The existing outbox remains the retry and delivery record; SMTP configuration or delivery failure does not roll back or cancel the issued invitation.
+- The success response now distinguishes `emailQueued: true` from `emailSent: true/false`.
+- Updated the staff invitation form to report whether the email was sent immediately or was queued for retry.
+- This does not add payment or other offline behavior and is limited to the existing invitation API.
+
+Files changed:
+
+- `src/app/api/auth/invitations/route.ts`
+- `src/components/auth/invite-user-form.tsx`
+- `docs/api/invitations.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- No live invitation was submitted during this implementation change.
+- A live browser submission is still required to verify recipient delivery end to end.
+
+Recommended next action: submit a new staff invitation from the running page and confirm it reports sent and the recipient receives the link.
+
+## 32. Hide invitation navigation from non-admin staff
+
+- The dashboard now renders “Invite staff user” and “Manage invitations” only for staff with the `admin` or `superadmin` role.
+- The active session computes this capability from current database roles and passes it to the shared dashboard shell.
+- Reused the same role helper in the invitation pages and revoke handler; existing route/API authorization remains in place.
+- Documented that hidden navigation is not a substitute for server-side authorization.
+
+Files changed:
+
+- `src/lib/auth/policy.ts`
+- `src/lib/auth/policies.test.ts`
+- `src/lib/auth/session.ts`
+- `src/components/dashboard/dashboard-shell.tsx`
+- `src/app/dashboard/layout.tsx`
+- `src/app/change-password/page.tsx`
+- `src/app/dashboard/accounts/invite/page.tsx`
+- `src/app/dashboard/accounts/invitations/page.tsx`
+- `src/app/api/auth/invitations/[invitationId]/revoke/route.ts`
+- `docs/api/invitations.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npm run test:auth`: passed, 9 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed; Git emitted an existing LF-to-CRLF warning for `next.config.ts`.
+
+Recommended next action: verify the Accounts menu with a non-admin staff account and an admin account in the browser.
+
+## 33. Invitation date hydration mismatch
+
+- Fixed the invitation management page hydration warning caused by formatting dates with the server and browser's differing default locales.
+- Invitation timestamps now use the explicit `en-GB` locale and `Africa/Nairobi` time zone on both renders.
+
+Files changed:
+
+- `src/components/auth/manage-invitations.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed; Git emitted an existing LF-to-CRLF warning for `next.config.ts`.
+- Browser reload was not performed.
+
+Recommended next action: reload `/dashboard/accounts/invitations` and confirm the page hydrates without a mismatch warning.
+
+## 34. Navigation drawer default and desktop toggle
+
+- The dashboard drawer now starts closed at all viewport sizes.
+- The header navigation control is available on desktop and mobile, toggles between menu and close icons, and exposes its expanded state accessibly.
+- On desktop, opening the drawer shifts the page content; closing it returns the content to full width. On mobile, the existing backdrop remains the close affordance.
+
+Files changed:
+
+- `src/components/dashboard/dashboard-shell.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed; Git emitted an existing LF-to-CRLF warning for `next.config.ts`.
+- Browser verification was not performed.
+
+Recommended next action: verify open/close behavior at desktop and mobile widths in the browser.

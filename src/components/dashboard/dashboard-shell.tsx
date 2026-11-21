@@ -7,11 +7,13 @@ import { useState, type ReactNode } from "react";
 type DashboardShellProps = {
   children: ReactNode;
   fullName: string;
+  canManageInvitations: boolean;
 };
 
 export function DashboardShell({
   children,
   fullName,
+  canManageInvitations,
 }: DashboardShellProps) {
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -41,9 +43,10 @@ export function DashboardShell({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-slate-200 bg-white transition-transform lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-slate-200 bg-white transition-transform ${
           drawerOpen ? "translate-x-0" : "-translate-x-full"
         }`}
+        id="dashboard-navigation"
       >
         <div className="flex h-20 items-center gap-3 border-b border-slate-200 px-6">
           <span
@@ -89,6 +92,28 @@ export function DashboardShell({
                   </svg>
                 </summary>
                 <ul className="mt-1 space-y-1 border-l border-slate-200 pl-3 ml-3">
+                  {canManageInvitations && (
+                    <>
+                      <li>
+                        <Link
+                          className="flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-teal-50 hover:text-teal-900"
+                          href="/dashboard/accounts/invitations"
+                          onClick={() => setDrawerOpen(false)}
+                        >
+                          Manage invitations
+                        </Link>
+                      </li>
+                      <li>
+                        <Link
+                          className="flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-teal-50 hover:text-teal-900"
+                          href="/dashboard/accounts/invite"
+                          onClick={() => setDrawerOpen(false)}
+                        >
+                          Invite staff user
+                        </Link>
+                      </li>
+                    </>
+                  )}
                   <li>
                     <Link
                       className="flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-teal-50 hover:text-teal-900"
@@ -118,12 +143,18 @@ export function DashboardShell({
         </div>
       </aside>
 
-      <div className="lg:pl-72">
+      <div
+        className={`transition-[padding] duration-300 ${
+          drawerOpen ? "lg:pl-72" : ""
+        }`}
+      >
         <header className="sticky top-0 z-20 flex h-16 items-center border-b border-slate-200 bg-white px-4 sm:px-6">
           <button
-            aria-label="Open navigation"
-            className="mr-3 flex size-10 items-center justify-center rounded-lg border border-slate-300 text-slate-700 lg:hidden"
-            onClick={() => setDrawerOpen(true)}
+            aria-controls="dashboard-navigation"
+            aria-expanded={drawerOpen}
+            aria-label={drawerOpen ? "Close navigation" : "Open navigation"}
+            className="mr-3 flex size-10 items-center justify-center rounded-lg border border-slate-300 text-slate-700"
+            onClick={() => setDrawerOpen((isOpen) => !isOpen)}
             type="button"
           >
             <svg
@@ -135,7 +166,11 @@ export function DashboardShell({
               strokeWidth="1.75"
               viewBox="0 0 24 24"
             >
-              <path d="M4 6h16M4 12h16M4 18h16" />
+              {drawerOpen ? (
+                <path d="m6 6 12 12M18 6 6 18" />
+              ) : (
+                <path d="M4 6h16M4 12h16M4 18h16" />
+              )}
             </svg>
           </button>
           <p className="text-sm font-semibold text-slate-900">Ololua MIS</p>

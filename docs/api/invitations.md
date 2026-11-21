@@ -139,6 +139,10 @@ Responses use the common no-store envelope: `202` when queued, `400 VALIDATION_E
 
 The authenticated issuer's session and user are revalidated in the transaction. Admin/superadmin roles authorize staff and customer invitations; other staff can issue customer invitations only with the dedicated permission. Resending revokes the matching pending invitation and marks its still-queued email as failed before inserting a replacement. User, invitation, outbox, and security-event changes commit together.
 
+The dashboard only renders the invite-user and manage-invitations navigation options for staff users with the `admin` or `superadmin` role. Hiding navigation is a usability measure, not an authorization boundary: the invitation pages and API handlers independently enforce authorization.
+
+After the transaction commits, the invitation Route Handler makes one immediate attempt to send invitation emails through the existing outbox. The result is returned as `emailSent`; `emailQueued` remains true because the row stays available for worker retries. If SMTP is disabled or unavailable, issuance still succeeds and leaves the invitation email queued or retried through the outbox. The separate outbox worker remains available for scheduled or manual retry.
+
 The customer target is stored on `invitations.customer_id` so acceptance can create `customer_user_access` atomically. Partial unique indexes allow only one pending invitation per email and one per customer, and one active user link per customer. A revoked access link remains in history while allowing a later link.
 
 `EMAIL_OUTBOX_ENCRYPTION_KEY` must be configured as a base64-encoded 32-byte key. Generate a distinct value for each environment with `openssl rand -base64 32`. Configure `EMAIL` and `GMAIL_APP_PASSWORD` for Gmail SMTP. The password must be a Google App Password, not the account password.

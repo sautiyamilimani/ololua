@@ -8,7 +8,12 @@ import {
   users,
 } from "@/lib/db/schema";
 import { db } from "@/lib/db";
-import { getSessionPolicy, isAccountType, type SessionPolicy } from "./policy";
+import {
+  canManageInvitations,
+  getSessionPolicy,
+  isAccountType,
+  type SessionPolicy,
+} from "./policy";
 import { hashOpaqueToken } from "./token";
 import type { AuthenticatedUser } from "./login";
 
@@ -18,6 +23,7 @@ type LoadedSession = {
   sessionId: string;
   user: AuthenticatedUser;
   policy: SessionPolicy;
+  canManageInvitations: boolean;
 };
 
 async function loadActiveSession(
@@ -80,10 +86,8 @@ async function loadActiveSession(
           .innerJoin(roles, eq(userRoles.roleId, roles.id))
           .where(eq(userRoles.userId, user.id))
       : [];
-  const policy = getSessionPolicy(
-    user.accountType,
-    roleRows.map((role) => role.roleKey),
-  );
+  const roleKeys = roleRows.map((role) => role.roleKey);
+  const policy = getSessionPolicy(user.accountType, roleKeys);
 
   return {
     sessionId: session.id,
@@ -94,6 +98,7 @@ async function loadActiveSession(
       accountType: user.accountType,
     },
     policy,
+    canManageInvitations: canManageInvitations(user.accountType, roleKeys),
   };
 }
 

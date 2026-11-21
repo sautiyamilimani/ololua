@@ -32,7 +32,10 @@ export default async function ChangePasswordPage() {
   }
 
   return (
-    <DashboardShell fullName={session.user.fullName}>
+    <DashboardShell
+      canManageInvitations={session.canManageInvitations}
+      fullName={session.user.fullName}
+    >
       <section
         aria-labelledby="change-password-title"
         className="mx-auto w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"

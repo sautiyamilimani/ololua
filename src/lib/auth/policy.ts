@@ -18,6 +18,16 @@ export function isRoleAllowedForAccountType(
     : roleKey !== "customer";
 }
 
+export function canManageInvitations(
+  accountType: AccountType,
+  roleKeys: readonly string[],
+): boolean {
+  return (
+    accountType === "staff" &&
+    roleKeys.some((roleKey) => roleKey === "admin" || roleKey === "superadmin")
+  );
+}
+
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
