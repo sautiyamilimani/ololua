@@ -143,6 +143,7 @@ export function SignInForm() {
 
     setPassword("");
     setPasswordVisible(false);
+    setState({ kind: "idle" });
     router.replace("/dashboard");
   }
 

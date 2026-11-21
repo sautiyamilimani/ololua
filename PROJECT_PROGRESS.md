@@ -854,3 +854,22 @@ Verification:
 - Browser verification was not performed, and no OTP email was sent.
 
 Recommended next action: investigate why the password-change integration fixture-cleanup assertion sees 3 rate-limit rows, without deleting database records, then verify the back-to-dashboard and post-change sign-in navigation in the browser.
+
+## 27. Reset sign-in loading state after successful authentication
+
+- The sign-in form now returns its state to `idle` after validating a successful login response and before navigating to the dashboard.
+- This prevents Next.js preserved client UI state from leaving the sign-in form stuck on “Signing in...” when the user later returns there, including after a password change.
+
+Files changed:
+
+- `src/components/auth/sign-in-form.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- No production build or browser end-to-end flow was run; a successful password-change browser flow would require sending and entering a real OTP.
+
+Recommended next action: after the development page reloads, confirm the sign-in button is enabled when opening `/sign-in`; use an approved test account and email configuration before performing a full OTP password-change flow.
