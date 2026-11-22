@@ -1299,3 +1299,41 @@ Verification:
 - `git --no-pager diff --check`: passed.
 
 Recommended next action: continue with the approved account-management browser checks.
+
+## 45. Staff role management
+
+- Added `PATCH /api/admin/users/[userId]/roles` to replace the complete role set for active or suspended staff accounts; at least one staff role must remain, and customer/superadmin roles are rejected.
+- Confirmed policy: admins may change roles on non-admin staff, including granting/removing `admin`; superadmins may change roles for any non-superadmin staff; neither may change their own roles.
+- Every successful role change revokes the target's active sessions, records `assigned_by`, and writes a secret-free `staff_roles_changed` security event in the same transaction.
+- Prevented changes that remove/demote the last active admin and blocked suspension of the last active admin. Role and status changes share a transaction-level advisory lock to serialize these checks.
+- Added role checkboxes and save feedback to eligible staff details pages. Updated the user-management API contract.
+- No schema change or migration was needed.
+
+Files changed:
+
+- `src/lib/auth/policy.ts`
+- `src/lib/auth/policies.test.ts`
+- `src/lib/auth/staff-access-lock.ts`
+- `src/lib/auth/staff-account-status.ts`
+- `src/lib/auth/staff-roles.ts`
+- `src/lib/auth/staff-roles.integration.test.ts`
+- `src/app/api/admin/users/[userId]/roles/route.ts`
+- `src/app/api/admin/users/[userId]/status/route.ts`
+- `src/app/dashboard/accounts/users/[userId]/page.tsx`
+- `src/components/auth/staff-account-status-control.tsx`
+- `src/components/auth/staff-role-control.tsx`
+- `src/lib/auth/response.ts`
+- `package.json`
+- `docs/api/user-management.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsx --test --test-concurrency=1 src/lib/auth/staff-roles.integration.test.ts src/lib/auth/staff-account-status.integration.test.ts`: passed, 7 tests against the loopback development database; fixtures were cleaned up.
+- `npm run test:auth`: passed, 12 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git --no-pager diff --check`: passed.
+- Production build and authenticated browser verification were not run; the development server is listening on port 3000.
+
+Recommended next action: browser-test role assignment, session revocation, and last-active-admin protections with approved development accounts.

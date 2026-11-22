@@ -2,15 +2,19 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, ne } from "drizzle-orm";
 import {
   AccountStatusBadge,
   StaffRoleBadge,
   YouBadge,
 } from "@/components/auth/account-badges";
 import { StaffAccountStatusControl } from "@/components/auth/staff-account-status-control";
+import { StaffRoleControl } from "@/components/auth/staff-role-control";
 import { db } from "@/lib/db";
-import { canChangeStaffAccountStatus } from "@/lib/auth/policy";
+import {
+  canChangeStaffAccountStatus,
+  canManageStaffRoles,
+} from "@/lib/auth/policy";
 import {
   invitations,
   roles,
@@ -104,7 +108,12 @@ export default async function StaffUserDetailsPage({
     notFound();
   }
 
-  const [actorRoleRows, targetRoleRows, pendingInvitation] = await Promise.all([
+  const [
+    actorRoleRows,
+    targetRoleRows,
+    pendingInvitation,
+    availableRoleRows,
+  ] = await Promise.all([
     db
       .select({ roleKey: roles.roleKey })
       .from(userRoles)
@@ -136,6 +145,14 @@ export default async function StaffUserDetailsPage({
       )
       .orderBy(desc(invitations.createdAt))
       .limit(1),
+    db
+      .select({
+        roleKey: roles.roleKey,
+        roleName: roles.displayName,
+      })
+      .from(roles)
+      .where(and(ne(roles.roleKey, "customer"), ne(roles.roleKey, "superadmin")))
+      .orderBy(roles.displayName),
   ]);
 
   const [activeInvitation] = pendingInvitation;
@@ -155,6 +172,12 @@ export default async function StaffUserDetailsPage({
   }
 
   const canChangeStatus = canChangeStaffAccountStatus(
+    session.user.id,
+    actorRoleRows.map((role) => role.roleKey),
+    user.id,
+    targetRoleRows.map((role) => role.roleKey),
+  );
+  const canChangeRoles = canManageStaffRoles(
     session.user.id,
     actorRoleRows.map((role) => role.roleKey),
     user.id,
@@ -248,6 +271,14 @@ export default async function StaffUserDetailsPage({
         <StaffAccountStatusControl
           fullName={user.fullName}
           status={changeableStatus}
+          userId={user.id}
+        />
+      )}
+      {canChangeRoles && changeableStatus && (
+        <StaffRoleControl
+          assignedRoleKeys={targetRoleRows.map((role) => role.roleKey)}
+          fullName={user.fullName}
+          roleOptions={availableRoleRows}
           userId={user.id}
         />
       )}

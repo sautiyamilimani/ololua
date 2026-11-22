@@ -48,6 +48,38 @@ export function canChangeStaffAccountStatus(
   return isSuperadmin || !targetRoleKeys.includes("admin");
 }
 
+export function canManageStaffRoles(
+  actorId: string,
+  actorRoleKeys: readonly string[],
+  targetId: string,
+  targetRoleKeys: readonly string[],
+): boolean {
+  if (actorId === targetId || targetRoleKeys.includes("superadmin")) {
+    return false;
+  }
+
+  const isSuperadmin = actorRoleKeys.includes("superadmin");
+  const isAdmin = actorRoleKeys.includes("admin");
+
+  if (!isSuperadmin && !isAdmin) {
+    return false;
+  }
+
+  return isSuperadmin || !targetRoleKeys.includes("admin");
+}
+
+export function isLastActiveAdmin(
+  status: string,
+  roleKeys: readonly string[],
+  activeAdminCount: number,
+): boolean {
+  return (
+    status === "active" &&
+    roleKeys.includes("admin") &&
+    activeAdminCount === 1
+  );
+}
+
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;

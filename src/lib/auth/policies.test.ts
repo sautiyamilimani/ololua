@@ -5,6 +5,8 @@ import {
   getPasswordMinimumLength,
   getSessionPolicy,
   canChangeStaffAccountStatus,
+  canManageStaffRoles,
+  isLastActiveAdmin,
   canManageStaffAccounts,
   isRoleAllowedForAccountType,
 } from "./policy";
@@ -89,4 +91,57 @@ test("staff status changes follow admin and superadmin boundaries", () => {
     canChangeStaffAccountStatus("admin-1", ["admin"], "admin-1", ["admin"]),
     false,
   );
+});
+
+test("staff role changes follow admin and superadmin boundaries", () => {
+  assert.equal(
+    canManageStaffRoles("admin-1", ["admin"], "reader-1", ["meter_reader"]),
+    true,
+  );
+  assert.equal(
+    canManageStaffRoles("admin-1", ["admin"], "admin-2", ["admin"]),
+    false,
+  );
+  assert.equal(
+    canManageStaffRoles("admin-1", ["admin"], "admin-1", ["admin"]),
+    false,
+  );
+  assert.equal(
+    canManageStaffRoles(
+      "superadmin-1",
+      ["superadmin"],
+      "admin-1",
+      ["admin"],
+    ),
+    true,
+  );
+  assert.equal(
+    canManageStaffRoles(
+      "superadmin-1",
+      ["superadmin"],
+      "superadmin-1",
+      ["superadmin"],
+    ),
+    false,
+  );
+  assert.equal(
+    canManageStaffRoles(
+      "superadmin-1",
+      ["superadmin"],
+      "superadmin-2",
+      ["superadmin"],
+    ),
+    false,
+  );
+  assert.equal(
+    canManageStaffRoles("reader-1", ["meter_reader"], "reader-2", ["meter_reader"]),
+    false,
+  );
+});
+
+test("the last active admin is identified for role and status safeguards", () => {
+  assert.equal(isLastActiveAdmin("active", ["admin"], 1), true);
+  assert.equal(isLastActiveAdmin("active", ["admin"], 2), false);
+  assert.equal(isLastActiveAdmin("suspended", ["admin"], 1), false);
+  assert.equal(isLastActiveAdmin("active", ["meter_reader"], 1), false);
 });

@@ -17,7 +17,7 @@
         "email:verify-smtp": "tsx src/scripts/verify-email-smtp.ts",
         "test:email:integration": "tsx --test src/lib/email/outbox.integration.test.ts",
         "test:auth": "tsx --test src/lib/auth/policies.test.ts src/lib/auth/csrf.test.ts src/lib/auth/password.test.ts",
-        "test:auth:integration": "tsx --test --test-concurrency=1 src/lib/auth/accept-invitation.integration.test.ts src/lib/auth/issue-invitation.integration.test.ts src/lib/auth/login.integration.test.ts src/lib/auth/password-change.integration.test.ts src/lib/auth/password-reset.integration.test.ts src/lib/auth/staff-account-status.integration.test.ts src/lib/auth/superadmin-bootstrap.integration.test.ts src/lib/email/outbox.integration.test.ts"
+        "test:auth:integration": "tsx --test --test-concurrency=1 src/lib/auth/accept-invitation.integration.test.ts src/lib/auth/issue-invitation.integration.test.ts src/lib/auth/login.integration.test.ts src/lib/auth/password-change.integration.test.ts src/lib/auth/password-reset.integration.test.ts src/lib/auth/staff-account-status.integration.test.ts src/lib/auth/staff-roles.integration.test.ts src/lib/auth/superadmin-bootstrap.integration.test.ts src/lib/email/outbox.integration.test.ts"
     },
     "dependencies": {
         "@neondatabase/serverless": "^1.2.1",

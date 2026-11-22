@@ -35,6 +35,9 @@ function getErrorMessage(code: string | null): string {
   if (code === "ACCOUNT_STATUS_CONFLICT") {
     return "The account status changed. Refresh the page and try again.";
   }
+  if (code === "LAST_ACTIVE_ADMIN") {
+    return "This is the last active admin. Reactivate another admin or assign the admin role to another staff member first.";
+  }
   if (code === "CSRF_FAILED") {
     return "For your security, reload this page and try again.";
   }

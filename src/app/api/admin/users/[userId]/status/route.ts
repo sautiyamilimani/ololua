@@ -100,6 +100,14 @@ export async function PATCH(
       );
     }
 
+    if (result.kind === "last-active-admin") {
+      return errorResponse(
+        409,
+        "LAST_ACTIVE_ADMIN",
+        "The last active admin account cannot be suspended.",
+      );
+    }
+
     if (result.notificationQueued) {
       try {
         await sendPendingOutboxEmails(

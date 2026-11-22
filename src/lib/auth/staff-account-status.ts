@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, count, eq, gt, isNull } from "drizzle-orm";
 import {
   accountSecurityEvents,
   emailOutbox,
@@ -13,8 +13,10 @@ import {
   canChangeStaffAccountStatus,
   canManageStaffAccounts,
   getSessionPolicy,
+  isLastActiveAdmin,
   type SessionPolicy,
 } from "./policy";
+import { lockStaffAccessChanges } from "./staff-access-lock";
 import { hashOpaqueToken } from "./token";
 
 export type StaffAccountStatus = "active" | "suspended";
@@ -28,7 +30,8 @@ export type ChangeStaffAccountStatusResult =
   | { kind: "unauthenticated" }
   | { kind: "forbidden" }
   | { kind: "not-found" }
-  | { kind: "status-conflict" };
+  | { kind: "status-conflict" }
+  | { kind: "last-active-admin" };
 
 export async function changeStaffAccountStatus(
   sessionToken: string,
@@ -40,6 +43,7 @@ export async function changeStaffAccountStatus(
   const normalizedUserAgent = userAgent?.slice(0, 512) ?? null;
 
   return db.transaction(async (transaction) => {
+    await lockStaffAccessChanges(transaction);
     const now = new Date();
     const [activeSession] = await transaction
       .select({
@@ -139,6 +143,29 @@ export async function changeStaffAccountStatus(
       )
     ) {
       return { kind: "forbidden" };
+    }
+
+    if (
+      requestedStatus === "suspended" &&
+      target.status === "active" &&
+      targetRoleRows.some((role) => role.roleKey === "admin")
+    ) {
+      const [activeAdminCount] = await transaction
+        .select({ value: count() })
+        .from(users)
+        .innerJoin(userRoles, eq(userRoles.userId, users.id))
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .where(and(eq(users.status, "active"), eq(roles.roleKey, "admin")));
+
+      if (
+        isLastActiveAdmin(
+          target.status,
+          targetRoleRows.map((role) => role.roleKey),
+          activeAdminCount?.value ?? 0,
+        )
+      ) {
+        return { kind: "last-active-admin" };
+      }
     }
 
     if (
