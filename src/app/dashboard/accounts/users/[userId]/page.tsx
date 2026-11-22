@@ -2,12 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { and, desc, eq, gt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
 import {
   AccountStatusBadge,
   StaffRoleBadge,
   YouBadge,
 } from "@/components/auth/account-badges";
+import { StaffAccountActivity } from "@/components/auth/staff-account-activity";
 import { StaffAccountStatusControl } from "@/components/auth/staff-account-status-control";
 import { StaffRoleControl } from "@/components/auth/staff-role-control";
 import { db } from "@/lib/db";
@@ -15,7 +16,9 @@ import {
   canChangeStaffAccountStatus,
   canManageStaffRoles,
 } from "@/lib/auth/policy";
+import { formatStaffAccountActivity } from "@/lib/auth/staff-account-activity";
 import {
+  accountSecurityEvents,
   invitations,
   roles,
   userRoles,
@@ -113,6 +116,7 @@ export default async function StaffUserDetailsPage({
     targetRoleRows,
     pendingInvitation,
     availableRoleRows,
+    activityEvents,
   ] = await Promise.all([
     db
       .select({ roleKey: roles.roleKey })
@@ -153,7 +157,58 @@ export default async function StaffUserDetailsPage({
       .from(roles)
       .where(and(ne(roles.roleKey, "customer"), ne(roles.roleKey, "superadmin")))
       .orderBy(roles.displayName),
+    db
+      .select({
+        id: accountSecurityEvents.id,
+        eventType: accountSecurityEvents.eventType,
+        metadata: accountSecurityEvents.metadata,
+        createdAt: accountSecurityEvents.createdAt,
+      })
+      .from(accountSecurityEvents)
+      .where(
+        and(
+          eq(accountSecurityEvents.userId, user.id),
+          inArray(accountSecurityEvents.eventType, [
+            "staff_account_suspended",
+            "staff_account_reactivated",
+            "staff_roles_changed",
+          ]),
+        ),
+      )
+      .orderBy(desc(accountSecurityEvents.createdAt), desc(accountSecurityEvents.id))
+      .limit(50),
   ]);
+
+  const roleNameByKey = new Map(
+    availableRoleRows.map((role) => [role.roleKey, role.roleName]),
+  );
+  const formattedActivity = formatStaffAccountActivity(
+    activityEvents,
+    roleNameByKey,
+  );
+  const actorIds = [
+    ...new Set(
+      formattedActivity.flatMap((entry) =>
+        entry.actorId ? [entry.actorId] : [],
+      ),
+    ),
+  ];
+  const activityActors =
+    actorIds.length > 0
+      ? await db
+          .select({ id: users.id, fullName: users.fullName })
+          .from(users)
+          .where(inArray(users.id, actorIds))
+      : [];
+  const actorNameById = new Map(
+    activityActors.map((actor) => [actor.id, actor.fullName]),
+  );
+  const activityEntries = formattedActivity.map((entry) => ({
+    ...entry,
+    actorName: entry.actorId
+      ? actorNameById.get(entry.actorId) ?? "Unavailable user"
+      : "Unavailable user",
+  }));
 
   const [activeInvitation] = pendingInvitation;
   const displayRoles = targetRoleRows.map((role) => ({
@@ -267,6 +322,7 @@ export default async function StaffUserDetailsPage({
           <dd className="text-sm text-slate-900">{formatDate(user.updatedAt)}</dd>
         </div>
       </dl>
+      <StaffAccountActivity entries={activityEntries} />
       {canChangeStatus && changeableStatus && (
         <StaffAccountStatusControl
           fullName={user.fullName}

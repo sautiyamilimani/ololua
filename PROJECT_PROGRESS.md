@@ -1334,6 +1334,47 @@ Verification:
 - `npx tsc --noEmit`: passed.
 - `npm run lint`: passed.
 - `git --no-pager diff --check`: passed.
-- Production build and authenticated browser verification were not run; the development server is listening on port 3000.
+- User confirmed browser verification is complete; specific test scenarios were not reported.
+- Production build was not run; the development server was listening on port 3000.
 
-Recommended next action: browser-test role assignment, session revocation, and last-active-admin protections with approved development accounts.
+The previously recommended read-only staff account activity history is completed below.
+
+## Read-only staff account activity history task (complete)
+
+**Current approved stage:** Stage 4 - Frontend. This task adds only the approved read-only staff account activity history.
+
+Completed:
+
+- Added the latest 50 role-change, suspension, and reactivation events to the admin/superadmin staff details page.
+- Limited the database selection to the approved event types and selected only event ID, event type, metadata, and timestamp. Actor names are resolved in a bounded query.
+- Validated status and role metadata before display. The page renders only action, before/after details, actor name, and timestamp; it does not display raw metadata, IP addresses, user agents, or request IDs.
+- Added focused formatter tests and included them in `npm run test:auth`.
+- Updated the user-management API contract documentation. No schema, migration, or API endpoint was needed.
+
+Files changed for this task:
+
+- `src/app/dashboard/accounts/users/[userId]/page.tsx`
+- `src/components/auth/staff-account-activity.tsx`
+- `src/lib/auth/staff-account-activity.ts`
+- `src/lib/auth/staff-account-activity.test.ts`
+- `package.json`
+- `docs/api/user-management.md`
+- `PROJECT_PROGRESS.md`
+
+Decisions and ambiguities:
+
+- The history is read-only and shows at most 50 of the newest qualifying events.
+- Only role changes, suspensions, and reactivations are included. Missing or malformed before/after metadata is labeled unavailable rather than exposing the original metadata.
+- No open policy ambiguity or database blocker remains for this task.
+
+Verification:
+
+- `npm run test:auth`: passed, 14 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- No database migration or live database operation was run.
+- Browser verification of the new activity history was not run.
+
+Recommended next action: browser-verify the staff activity history with approved development accounts, including role changes, suspension/reactivation, actor names, and the empty state.
