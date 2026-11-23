@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getApplicationOrigin, hasValidCsrfHeaders } from "@/lib/auth/csrf";
 import { errorResponse, successResponse } from "@/lib/auth/response";
 import { getActiveSession } from "@/lib/auth/session";
@@ -19,7 +19,10 @@ import { customers } from "@/lib/db/schema";
 import {
   parseUpdateCustomerInput,
 } from "@/lib/customers/input";
-import { updateCustomer } from "@/lib/customers/management";
+import {
+  deleteCustomer,
+  updateCustomer,
+} from "@/lib/customers/management";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -76,7 +79,7 @@ export async function GET(
         updatedAt: customers.updatedAt,
       })
       .from(customers)
-      .where(eq(customers.id, customerId))
+      .where(and(eq(customers.id, customerId), eq(customers.isTrashed, false)))
       .limit(1);
 
     if (!customer) {
@@ -164,6 +167,61 @@ export async function PATCH(
     return response;
   } catch (error) {
     logUnexpectedFailure("update", error);
+    return errorResponse(500, "INTERNAL_ERROR", "The request could not be completed.");
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ customerId: string }> },
+): Promise<NextResponse> {
+  try {
+    if (!hasValidCsrfHeaders(request, getApplicationOrigin())) {
+      return errorResponse(403, "CSRF_FAILED", "The request could not be verified.");
+    }
+
+    const { customerId } = await context.params;
+    if (!UUID_PATTERN.test(customerId)) {
+      return errorResponse(400, "VALIDATION_ERROR", "The customer request is invalid.");
+    }
+
+    const sessionToken = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+    if (!isValidSessionToken(sessionToken)) {
+      return errorResponse(401, "UNAUTHENTICATED", "Sign in to continue.");
+    }
+
+    const result = await deleteCustomer(sessionToken, customerId);
+    if (result.kind === "unauthenticated") {
+      return errorResponse(401, "UNAUTHENTICATED", "Sign in to continue.");
+    }
+    if (result.kind === "forbidden") {
+      return errorResponse(
+        403,
+        "FORBIDDEN",
+        "You are not allowed to manage customer records.",
+      );
+    }
+    if (result.kind === "not-found") {
+      return errorResponse(404, "NOT_FOUND", "The customer was not found.");
+    }
+    if (result.kind === "conflict") {
+      return errorResponse(
+        409,
+        "CUSTOMER_CONFLICT",
+        "This customer is already trashed.",
+      );
+    }
+    if (result.kind !== "success") {
+      throw new Error("Customer deletion returned an unexpected result.");
+    }
+
+    const response = successResponse({
+      customer: { id: result.customerId },
+    });
+    setSessionCookie(response, sessionToken, result.sessionPolicy);
+    return response;
+  } catch (error) {
+    logUnexpectedFailure("delete", error);
     return errorResponse(500, "INTERNAL_ERROR", "The request could not be completed.");
   }
 }

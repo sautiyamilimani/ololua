@@ -13,6 +13,8 @@ import {
   SESSION_COOKIE_NAME,
 } from "@/lib/auth/session-token";
 
+export const instant = false;
+
 export const metadata: Metadata = {
   title: "Add meter | Ololua Water Services",
 };

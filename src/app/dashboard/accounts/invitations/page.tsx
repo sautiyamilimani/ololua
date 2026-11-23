@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notExists } from "drizzle-orm";
 import {
   ManageInvitations,
   type InvitationListItem,
 } from "@/components/auth/manage-invitations";
+import { InviteCustomerForm } from "@/components/auth/invite-customer-form";
+import { InviteUserForm } from "@/components/auth/invite-user-form";
 import { db } from "@/lib/db";
 import { canManageStaffAccounts } from "@/lib/auth/policy";
 import {
   emailOutbox,
   invitations,
+  customerUserAccess,
+  customers,
   roles,
   userRoles,
   users,
@@ -24,13 +28,17 @@ import {
 export const instant = false;
 
 export const metadata: Metadata = {
-  title: "Manage invitations | Ololua Water Services",
-  description: "View and manage staff and customer account invitations.",
+  title: "Invitations | Ololua Water Services",
+  description: "Invite staff and customer accounts or manage existing invitations.",
   referrer: "no-referrer",
   robots: { index: false, follow: false },
 };
 
-export default async function ManageInvitationsPage() {
+export default async function ManageInvitationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string | string[] }>;
+}) {
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
 
   if (!isValidSessionToken(token)) {
@@ -65,7 +73,7 @@ export default async function ManageInvitationsPage() {
         className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
       >
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950" id="manage-invitations-title">
-          Manage invitations
+          Invitations
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
           Only administrators and superadministrators can manage invitations.
@@ -132,25 +140,110 @@ export default async function ManageInvitationsPage() {
     };
   });
 
+  const params = await searchParams;
+  const tab = params.tab === "invite" ? "invite" : "manage";
+
+  const activeAccessForCustomer = db
+    .select({ id: customerUserAccess.id })
+    .from(customerUserAccess)
+    .where(
+      and(
+        eq(customerUserAccess.customerId, customers.id),
+        isNull(customerUserAccess.revokedAt),
+      ),
+    );
+  const customerOptions =
+    tab === "invite"
+      ? await db
+          .select({
+            id: customers.id,
+            customerNumber: customers.customerNumber,
+            fullName: customers.fullName,
+            email: customers.email,
+          })
+          .from(customers)
+          .where(
+            and(
+              eq(customers.isTrashed, false),
+              notExists(activeAccessForCustomer),
+            ),
+          )
+          .orderBy(customers.fullName, customers.customerNumber)
+      : [];
+
   return (
     <section
-      aria-labelledby="manage-invitations-title"
-      className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+      aria-labelledby="invitations-title"
+      className="mx-auto w-full max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
     >
       <header className="mb-6">
         <p className="mb-2 text-sm font-semibold text-teal-800">Accounts</p>
         <h1
           className="text-2xl font-semibold tracking-tight text-slate-950"
-          id="manage-invitations-title"
+          id="invitations-title"
         >
-          Manage invitations
+          Invitations
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          Review staff and customer invitation and email delivery states.
-          Pending invitations can be resent or revoked.
+          Invite staff or customers, or review and manage existing invitations.
         </p>
       </header>
-      <ManageInvitations invitations={list} />
+
+      <nav aria-label="Invitation sections" className="mb-6 flex border-b border-slate-200">
+        <a
+          aria-current={tab === "invite" ? "page" : undefined}
+          className={`min-h-11 border-b-2 px-4 py-3 text-sm font-semibold ${
+            tab === "invite"
+              ? "border-teal-800 text-teal-900"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+          href="/dashboard/accounts/invitations?tab=invite"
+        >
+          Invite
+        </a>
+        <a
+          aria-current={tab === "manage" ? "page" : undefined}
+          className={`min-h-11 border-b-2 px-4 py-3 text-sm font-semibold ${
+            tab === "manage"
+              ? "border-teal-800 text-teal-900"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+          href="/dashboard/accounts/invitations?tab=manage"
+        >
+          Manage
+        </a>
+      </nav>
+
+      {tab === "invite" ? (
+        <div className="grid gap-8 lg:grid-cols-2">
+          <section aria-labelledby="invite-staff-title">
+            <h2
+              className="mb-4 text-lg font-semibold text-slate-950"
+              id="invite-staff-title"
+            >
+              Invite staff user
+            </h2>
+            <InviteUserForm />
+          </section>
+          <section
+            aria-labelledby="invite-customer-title"
+            className="border-t border-slate-200 pt-8 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0"
+          >
+            <h2
+              className="mb-2 text-lg font-semibold text-slate-950"
+              id="invite-customer-title"
+            >
+              Invite customer
+            </h2>
+            <p className="mb-4 text-sm leading-6 text-slate-600">
+              Choose an existing customer without an active portal login.
+            </p>
+            <InviteCustomerForm customers={customerOptions} />
+          </section>
+        </div>
+      ) : (
+        <ManageInvitations invitations={list} />
+      )}
     </section>
   );
 }

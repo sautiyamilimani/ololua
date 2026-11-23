@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   pgTable,
   pgSequence,
@@ -9,6 +10,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { users } from "./users";
 
 export const customerNumberSequence = pgSequence(
   "customers_customer_number_seq",
@@ -27,6 +29,9 @@ export const customers = pgTable(
     physicalAddress: text("physical_address"),
     locationDescription: text("location_description"),
     status: varchar("status", { length: 20 }).notNull(),
+    isTrashed: boolean("is_trashed").notNull().default(false),
+    trashedAt: timestamp("trashed_at", { withTimezone: true }),
+    trashedBy: uuid("trashed_by").references(() => users.id, { onDelete: "set null" }),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

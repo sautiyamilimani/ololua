@@ -15,6 +15,7 @@ export * from "./email-outbox";
 export * from "./settings";
 export * from "./customers";
 export * from "./customer-user-access";
+export * from "./staff-customer-access";
 export * from "./zones";
 export * from "./service-types";
 export * from "./units-of-measure";

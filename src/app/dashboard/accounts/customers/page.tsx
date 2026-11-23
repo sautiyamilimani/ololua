@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { and, asc, ilike, or } from "drizzle-orm";
+import { and, asc, eq, ilike, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { customers } from "@/lib/db/schema";
 import { getActiveSession } from "@/lib/auth/session";
@@ -42,7 +42,7 @@ function formatDate(value: Date): string {
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[] }>;
+  searchParams: Promise<{ q?: string | string[]; deleted?: string | string[] }>;
 }) {
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   if (!isValidSessionToken(token)) {
@@ -81,6 +81,7 @@ export default async function CustomersPage({
     typeof params.q === "string"
       ? params.q.trim().slice(0, MAX_SEARCH_LENGTH)
       : "";
+  const customerDeleted = params.deleted === "1";
   const canManage =
     await userHasPermission(session.user.id, CUSTOMER_MANAGE_PERMISSION);
 
@@ -92,6 +93,10 @@ export default async function CustomersPage({
         ilike(customers.phone, `%${escapeLikePattern(searchTerm)}%`),
       )
     : undefined;
+  const visibleCustomerCondition = and(
+    eq(customers.isTrashed, false),
+    searchCondition,
+  );
 
   const rows = await db
     .select({
@@ -105,7 +110,7 @@ export default async function CustomersPage({
       createdAt: customers.createdAt,
     })
     .from(customers)
-    .where(searchCondition ? and(searchCondition) : undefined)
+    .where(visibleCustomerCondition)
     .orderBy(asc(customers.customerNumber))
     .limit(MAX_RESULTS);
 
@@ -128,12 +133,36 @@ export default async function CustomersPage({
           </p>
         </div>
         {canManage && (
-          <Link
-            className="min-h-11 rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-900"
-            href="/dashboard/accounts/customers/new"
-          >
-            Add customer
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              aria-label="View trashed customers"
+              className="flex size-11 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950"
+              href="/dashboard/accounts/customers/trashed"
+              title="Trashed customers"
+            >
+              <svg
+                aria-hidden="true"
+                className="size-5"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.75"
+                viewBox="0 0 24 24"
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M19 6l-1 14H6L5 6" />
+                <path d="M10 10v6M14 10v6" />
+              </svg>
+            </Link>
+            <Link
+              className="min-h-11 rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-900"
+              href="/dashboard/accounts/customers/new"
+            >
+              Add customer
+            </Link>
+          </div>
         )}
       </header>
 
@@ -158,6 +187,16 @@ export default async function CustomersPage({
           Search
         </button>
       </form>
+
+      {customerDeleted && (
+        <p
+          aria-live="polite"
+          className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800"
+          role="status"
+        >
+          Customer moved to trash. Linked records were retained.
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <p className="text-sm leading-6 text-slate-600">

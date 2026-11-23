@@ -1,0 +1,1 @@
+ALTER TABLE "customers" ADD COLUMN "is_trashed" boolean DEFAULT false NOT NULL;

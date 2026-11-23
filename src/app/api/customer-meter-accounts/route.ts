@@ -158,13 +158,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
 
       const [customer] = await transaction
-        .select({ id: customers.id, status: customers.status })
+        .select({ id: customers.id, status: customers.status, isTrashed: customers.isTrashed })
         .from(customers)
         .where(eq(customers.id, input.customerId))
         .limit(1)
         .for("update");
       if (!customer) return { kind: "customer-not-found" as const };
-      if (customer.status !== "active") return { kind: "customer-inactive" as const };
+      if (customer.status !== "active" || customer.isTrashed) {
+        return { kind: "customer-inactive" as const };
+      }
 
       const [variant] = await transaction
         .select({ id: serviceVariants.id, status: serviceVariants.status })

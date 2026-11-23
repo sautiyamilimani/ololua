@@ -203,6 +203,7 @@ async function loadTargetAccount(
       email: customers.email,
       fullName: customers.fullName,
       customerNumber: customers.customerNumber,
+      isTrashed: customers.isTrashed,
     })
     .from(customers)
     .where(eq(customers.id, input.customerId))
@@ -210,6 +211,9 @@ async function loadTargetAccount(
     .for("update");
 
   if (!customer) {
+    return null;
+  }
+  if (customer.isTrashed) {
     return null;
   }
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   parseCreateCustomerInput,
+  parseLinkStaffCustomerAccessInput,
   parseUpdateCustomerInput,
 } from "./input";
 
@@ -55,6 +56,24 @@ test("customer update input permits partial changes and explicit clearing", () =
   assert.equal(parseUpdateCustomerInput({}), null);
   assert.equal(
     parseUpdateCustomerInput({ email: "not-an-email", status: "disabled" }),
+    null,
+  );
+});
+
+test("staff customer access input requires exactly two valid IDs", () => {
+  const staffUserId = "9e089ace-52e2-416b-b613-6d39e5d2d392";
+  const customerId = "fa63fab1-cb5d-496e-872f-9b3775a6175f";
+
+  assert.deepEqual(
+    parseLinkStaffCustomerAccessInput({ staffUserId, customerId }),
+    { staffUserId, customerId },
+  );
+  assert.equal(
+    parseLinkStaffCustomerAccessInput({ staffUserId, customerId, extra: true }),
+    null,
+  );
+  assert.equal(
+    parseLinkStaffCustomerAccessInput({ staffUserId, customerId: "not-a-uuid" }),
     null,
   );
 });

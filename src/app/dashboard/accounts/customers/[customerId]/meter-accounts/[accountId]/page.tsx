@@ -85,7 +85,7 @@ export default async function CustomerMeterAccountDetailsPage({
   const [customer] = await db
     .select({ fullName: customers.fullName })
     .from(customers)
-    .where(eq(customers.id, customerId))
+    .where(and(eq(customers.id, customerId), eq(customers.isTrashed, false)))
     .limit(1);
 
   const assignments = await db

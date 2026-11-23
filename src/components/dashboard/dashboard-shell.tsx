@@ -10,6 +10,7 @@ type DashboardShellProps = {
   canManageStaffAccounts: boolean;
   canReadCustomers: boolean;
   canReadMeters: boolean;
+  hasPersonalCustomerAccount: boolean;
   bottomNavVariant: "admin" | "officer" | "customer";
 };
 
@@ -45,6 +46,7 @@ export function DashboardShell({
   canManageStaffAccounts,
   canReadCustomers,
   canReadMeters,
+  hasPersonalCustomerAccount,
   bottomNavVariant,
 }: DashboardShellProps) {
   const router = useRouter();
@@ -169,6 +171,17 @@ export function DashboardShell({
                       </Link>
                     </li>
                   )}
+                  {hasPersonalCustomerAccount && (
+                    <li>
+                      <Link
+                        className="flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-teal-50 hover:text-teal-900"
+                        href="/dashboard/my-customer-account"
+                        onClick={() => setDrawerOpen(false)}
+                      >
+                        My customer account
+                      </Link>
+                    </li>
+                  )}
                   {canManageStaffAccounts && (
                     <>
                       <li>
@@ -186,16 +199,7 @@ export function DashboardShell({
                           href="/dashboard/accounts/invitations"
                           onClick={() => setDrawerOpen(false)}
                         >
-                          Manage invitations
-                        </Link>
-                      </li>
-                      <li>
-                        <Link
-                          className="flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-teal-50 hover:text-teal-900"
-                          href="/dashboard/accounts/invite"
-                          onClick={() => setDrawerOpen(false)}
-                        >
-                          Invite user
+                          Invitations
                         </Link>
                       </li>
                     </>
@@ -267,7 +271,9 @@ export function DashboardShell({
       </div>
       <nav
         aria-label="Primary mobile navigation"
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
+        className={`inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden ${
+          drawerOpen ? "hidden" : "fixed"
+        }`}
       >
         <ul className="grid grid-cols-4">
           {bottomItems.map((item) => {

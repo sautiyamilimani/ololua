@@ -13,6 +13,9 @@ import {
   userHasPermission,
 } from "@/lib/auth/permissions";
 import { METER_READ_PERMISSION } from "@/lib/auth/permissions";
+import { and, eq, isNull } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { customers, staffCustomerAccess } from "@/lib/db/schema";
 
 export const instant = false;
 
@@ -41,6 +44,21 @@ export default async function ChangePasswordPage() {
   const canReadMeters =
     session.user.accountType === "staff" &&
     await userHasPermission(session.user.id, METER_READ_PERMISSION);
+  const [personalCustomerAccess] =
+    session.user.accountType === "staff"
+      ? await db
+          .select({ id: staffCustomerAccess.id })
+          .from(staffCustomerAccess)
+          .innerJoin(customers, eq(staffCustomerAccess.customerId, customers.id))
+          .where(
+            and(
+              eq(staffCustomerAccess.staffUserId, session.user.id),
+              isNull(staffCustomerAccess.revokedAt),
+              eq(customers.isTrashed, false),
+            ),
+          )
+          .limit(1)
+      : [];
   const bottomNavVariant =
     session.user.accountType === "customer"
       ? "customer"
@@ -53,6 +71,7 @@ export default async function ChangePasswordPage() {
       canManageStaffAccounts={session.canManageStaffAccounts}
       canReadCustomers={canReadCustomers}
       canReadMeters={canReadMeters}
+      hasPersonalCustomerAccount={personalCustomerAccess !== undefined}
       bottomNavVariant={bottomNavVariant}
       fullName={session.user.fullName}
     >

@@ -173,7 +173,7 @@ export function InviteCustomerForm({
         </select>
         <p className="mt-2 text-xs leading-5 text-slate-500">
           The invitation is sent to the email address on the customer record.
-          Pending invitations can be reissued from Manage invitations.
+          Pending invitations can be reissued from the Manage tab.
         </p>
       </div>
 

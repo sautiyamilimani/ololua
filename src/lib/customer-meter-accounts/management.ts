@@ -28,7 +28,7 @@ export async function createCustomerMeterAccount(
 
   return db.transaction(async (transaction) => {
     const [customer] = await transaction
-      .select({ status: customers.status })
+      .select({ status: customers.status, isTrashed: customers.isTrashed })
       .from(customers)
       .where(eq(customers.id, input.customerId))
       .limit(1)
@@ -36,6 +36,9 @@ export async function createCustomerMeterAccount(
 
     if (!customer) {
       return { kind: "customer-not-found" } as const;
+    }
+    if (customer.isTrashed) {
+      return { kind: "customer-inactive" } as const;
     }
     if (customer.status !== "active") {
       return { kind: "customer-inactive" } as const;

@@ -116,11 +116,26 @@ rate_limits [icon: gauge, color: "#c2410c"] {
 customer_user_access [icon: link, color: indigo] {
   id uuid pk
   user_id uuid fk
-  customer_id uuid fk
+  customer_id uuid fk "ON DELETE RESTRICT"
   granted_by uuid fk
   created_at timestamptz "not null"
   revoked_at timestamptz
 }
+
+staff_customer_access [icon: link, color: blue] {
+  id uuid pk
+  staff_user_id uuid fk "ON DELETE RESTRICT; one active customer per staff user"
+  customer_id uuid fk "ON DELETE RESTRICT; one active staff link per customer"
+  linked_by uuid fk
+  created_at timestamptz "not null"
+  revoked_at timestamptz
+  revoked_by uuid fk
+}
+
+// This companion link is separate from customer_user_access. A staff member
+// and a customer portal user may access the same customer record independently.
+// Partial unique indexes on staff_user_id and customer_id where revoked_at is
+// null enforce the active one-to-one companion link.
 
 audit_logs [icon: history, color: gray] {
   id uuid pk
@@ -192,10 +207,17 @@ customers [icon: contact-round, color: brown] {
   physical_address text
   location_description text
   status varchar(20) "not null: active | inactive"
+  is_trashed boolean "not null default false"
+  trashed_at timestamptz
+  trashed_by uuid fk "ON DELETE SET NULL"
   notes text
   created_at timestamptz "not null"
   updated_at timestamptz "not null"
 }
+
+// Customer deletion is soft: is_trashed, trashed_at, and trashed_by preserve
+// history while linked service accounts, meters, access, invoices, and payments
+// remain attached and unchanged.
 
 zones [icon: map-pin, color: "#0e7490"] {
   id uuid pk
@@ -479,6 +501,11 @@ users.id < email_verification_tokens.user_id
 users.id < customer_user_access.user_id
 customers.id < customer_user_access.customer_id
 users.id < customer_user_access.granted_by
+
+users.id < staff_customer_access.staff_user_id
+customers.id < staff_customer_access.customer_id
+users.id < staff_customer_access.linked_by
+users.id < staff_customer_access.revoked_by
 
 users.id < audit_logs.actor_user_id
 users.id < account_security_events.user_id

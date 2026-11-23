@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, ne, or } from "drizzle-orm";
 import {
   AccountStatusBadge,
   StaffRoleBadge,
@@ -10,8 +10,13 @@ import {
 } from "@/components/auth/account-badges";
 import { StaffAccountActivity } from "@/components/auth/staff-account-activity";
 import { StaffAccountStatusControl } from "@/components/auth/staff-account-status-control";
+import { StaffCustomerAccessControl } from "@/components/auth/staff-customer-access-control";
 import { StaffRoleControl } from "@/components/auth/staff-role-control";
 import { db } from "@/lib/db";
+import {
+  CUSTOMER_MANAGE_PERMISSION,
+  userHasPermission,
+} from "@/lib/auth/permissions";
 import {
   canChangeStaffAccountStatus,
   canManageStaffRoles,
@@ -19,8 +24,10 @@ import {
 import { formatStaffAccountActivity } from "@/lib/auth/staff-account-activity";
 import {
   accountSecurityEvents,
+  customers,
   invitations,
   roles,
+  staffCustomerAccess,
   userRoles,
   users,
 } from "@/lib/db/schema";
@@ -110,6 +117,64 @@ export default async function StaffUserDetailsPage({
   if (!user) {
     notFound();
   }
+
+  const canManageCustomerLinks = await userHasPermission(
+    session.user.id,
+    CUSTOMER_MANAGE_PERMISSION,
+  );
+  const [staffAccess] = await db
+    .select({ customerId: staffCustomerAccess.customerId })
+    .from(staffCustomerAccess)
+    .where(
+      and(
+        eq(staffCustomerAccess.staffUserId, user.id),
+        isNull(staffCustomerAccess.revokedAt),
+      ),
+    )
+    .limit(1);
+  const [linkedCustomer] = staffAccess
+    ? await db
+        .select({
+          id: customers.id,
+          customerNumber: customers.customerNumber,
+          fullName: customers.fullName,
+        })
+        .from(customers)
+        .where(
+          and(
+            eq(customers.id, staffAccess.customerId),
+            eq(customers.isTrashed, false),
+          ),
+        )
+        .limit(1)
+    : [];
+  const customerOptions =
+    canManageCustomerLinks && user.status === "active"
+      ? await db
+          .select({
+            id: customers.id,
+            customerNumber: customers.customerNumber,
+            fullName: customers.fullName,
+          })
+          .from(customers)
+          .leftJoin(
+            staffCustomerAccess,
+            and(
+              eq(staffCustomerAccess.customerId, customers.id),
+              isNull(staffCustomerAccess.revokedAt),
+            ),
+          )
+          .where(
+            and(
+              eq(customers.isTrashed, false),
+              or(
+                isNull(staffCustomerAccess.id),
+                eq(staffCustomerAccess.staffUserId, user.id),
+              ),
+            ),
+          )
+          .orderBy(asc(customers.customerNumber))
+      : [];
 
   const [
     actorRoleRows,
@@ -323,6 +388,15 @@ export default async function StaffUserDetailsPage({
         </div>
       </dl>
       <StaffAccountActivity entries={activityEntries} />
+      {canManageCustomerLinks && (
+        <StaffCustomerAccessControl
+          customerOptions={customerOptions}
+          linkedCustomer={linkedCustomer ?? null}
+          staffFullName={user.fullName}
+          staffIsActive={user.status === "active"}
+          staffUserId={user.id}
+        />
+      )}
       {canChangeStatus && changeableStatus && (
         <StaffAccountStatusControl
           fullName={user.fullName}

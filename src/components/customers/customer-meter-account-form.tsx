@@ -14,11 +14,13 @@ export function CustomerMeterAccountForm({
   variants,
   zones,
   meters,
+  navigateToAccountDetails = true,
 }: {
   customerId: string;
   variants: Option[];
   zones: Option[];
   meters: Option[];
+  navigateToAccountDetails?: boolean;
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -74,17 +76,19 @@ export function CustomerMeterAccountForm({
       }
 
       setMessage("Customer meter account created successfully.");
-      if (
-        isRecord(payload) &&
-        isRecord(payload.data) &&
-        isRecord(payload.data.account) &&
-        typeof payload.data.account.id === "string"
-      ) {
-        router.push(
-          `/dashboard/accounts/customers/${customerId}/meter-accounts/${payload.data.account.id}`,
-        );
-      } else {
-        router.push(`/dashboard/accounts/customers/${customerId}`);
+      if (navigateToAccountDetails) {
+        if (
+          isRecord(payload) &&
+          isRecord(payload.data) &&
+          isRecord(payload.data.account) &&
+          typeof payload.data.account.id === "string"
+        ) {
+          router.push(
+            `/dashboard/accounts/customers/${customerId}/meter-accounts/${payload.data.account.id}`,
+          );
+        } else {
+          router.push(`/dashboard/accounts/customers/${customerId}`);
+        }
       }
       router.refresh();
     } catch {

@@ -24,7 +24,14 @@ export type UpdateCustomerInput = {
   status?: CustomerStatus;
 };
 
+export type LinkStaffCustomerAccessInput = {
+  staffUserId: string;
+  customerId: string;
+};
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const CREATE_FIELDS = new Set([
   "customerType",
   "fullName",
@@ -194,4 +201,25 @@ export function parseUpdateCustomerInput(
   }
 
   return input;
+}
+
+export function parseLinkStaffCustomerAccessInput(
+  value: unknown,
+): LinkStaffCustomerAccessInput | null {
+  if (
+    !isRecord(value) ||
+    !hasOnlyFields(value, new Set(["staffUserId", "customerId"])) ||
+    Object.keys(value).length !== 2 ||
+    typeof value.staffUserId !== "string" ||
+    !UUID_PATTERN.test(value.staffUserId) ||
+    typeof value.customerId !== "string" ||
+    !UUID_PATTERN.test(value.customerId)
+  ) {
+    return null;
+  }
+
+  return {
+    staffUserId: value.staffUserId,
+    customerId: value.customerId,
+  };
 }

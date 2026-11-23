@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { CustomerMeterAccountForm } from "@/components/customers/customer-meter-account-form";
 import { db } from "@/lib/db";
 import {
@@ -22,7 +22,6 @@ import {
   isValidSessionToken,
   SESSION_COOKIE_NAME,
 } from "@/lib/auth/session-token";
-import { and, isNull } from "drizzle-orm";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -64,7 +63,7 @@ export default async function NewCustomerMeterAccountPage({
   const [customer] = await db
     .select({ id: customers.id, fullName: customers.fullName, status: customers.status })
     .from(customers)
-    .where(eq(customers.id, customerId))
+    .where(and(eq(customers.id, customerId), eq(customers.isTrashed, false)))
     .limit(1);
   if (!customer) notFound();
 

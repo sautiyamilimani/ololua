@@ -1,6 +1,6 @@
 # Customer read API contract
 
-**Status:** Customer list, detail, create, and update Route Handlers are implemented. Meter/account operations, readings, billing, and payments are separate work.
+**Status:** Customer list, detail, create, update, and orphan-only hard-delete Route Handlers are implemented. Meter/account operations, readings, billing, and payments are separate work.
 
 ## Authorization
 
@@ -55,7 +55,7 @@ The path parameter must be a UUID. The returned customer includes the list field
 - `404 NOT_FOUND` when the requested customer does not exist.
 - `500 INTERNAL_ERROR` for unexpected failures; database details are not returned.
 
-No write or account-linking behavior is exposed by these endpoints.
+The `GET` endpoints do not expose write or account-linking behavior.
 
 ## `POST /api/customers`
 
@@ -85,11 +85,20 @@ Accepts one or more of `customerType`, `fullName`, `phone`, `email`, `physicalAd
 
 Email updates are rejected with `409 CUSTOMER_CONFLICT` when the customer has an active portal-user link or an unexpired pending invitation. Resolve the link/invitation first to avoid changing the customer contact email while a portal identity or invitation still uses the previous email. Other email duplicates are rejected by the case-insensitive unique index.
 
+## `DELETE /api/customers/{customerId}`
+
+Soft-deletes a customer by setting `isTrashed=true`, `status=inactive`, `trashedAt`, and `trashedBy`. The operation does not unlink or modify service accounts, meters, invitations, customer/staff portal access, invoices, payments, or financial history.
+
+The request requires the standard CSRF headers and a valid active staff session with `customers.manage`. No request body is required.
+
+Success returns HTTP `200` with the trashed customer ID. A `customer.delete` audit record is retained with the actor ID and customer number plus the old/new trash state. Trashed customers are excluded from normal customer lists and detail routes and cannot create new service accounts or invitations.
+
 ## Write errors
 
-- `400 VALIDATION_ERROR` for malformed JSON, unknown fields, missing/invalid required values, or an empty PATCH.
+- `400 VALIDATION_ERROR` for an invalid customer ID, malformed JSON, unknown fields, missing/invalid required values, or an empty PATCH.
 - `401 UNAUTHENTICATED` when the caller has no valid active session.
 - `403 FORBIDDEN` when the caller lacks `customers.manage`.
-- `404 NOT_FOUND` when the customer to update does not exist.
+- `404 NOT_FOUND` when the customer to update or delete does not exist.
 - `409 CUSTOMER_CONFLICT` for duplicate email or an email edit blocked by an active portal link/pending invitation.
+- `409 CUSTOMER_CONFLICT` when the customer is already trashed.
 - `500 INTERNAL_ERROR` for unexpected failures; database details are not returned.

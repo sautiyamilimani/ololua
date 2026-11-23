@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getApplicationOrigin, hasValidCsrfHeaders } from "@/lib/auth/csrf";
 import { errorResponse, successResponse } from "@/lib/auth/response";
 import { getActiveSession } from "@/lib/auth/session";
@@ -69,6 +69,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         status: customers.status,
       })
       .from(customers)
+      .where(eq(customers.isTrashed, false))
       .orderBy(asc(customers.customerNumber))
       .limit(page.limit + 1)
       .offset(page.offset);
