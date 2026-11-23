@@ -7,6 +7,8 @@ export type InvitationListItem = {
   id: string;
   fullName: string;
   email: string;
+  accountType: string;
+  customerId: string | null;
   roleKey: string;
   roleName: string;
   status: "pending" | "accepted" | "revoked" | "expired";
@@ -70,6 +72,25 @@ export function ManageInvitations({
   }
 
   async function resend(invitation: InvitationListItem): Promise<void> {
+    let requestBody: Record<string, string>;
+
+    if (invitation.accountType === "customer" && invitation.customerId) {
+      requestBody = {
+        accountType: "customer",
+        customerId: invitation.customerId,
+      };
+    } else if (invitation.accountType === "staff") {
+      requestBody = {
+        accountType: "staff",
+        email: invitation.email,
+        fullName: invitation.fullName,
+        roleKey: invitation.roleKey,
+      };
+    } else {
+      setMessage("This invitation cannot be resent because its target is unavailable.");
+      return;
+    }
+
     setBusyId(invitation.id);
     setMessage(null);
 
@@ -82,12 +103,7 @@ export function ManageInvitations({
           "Content-Type": "application/json",
           "X-CSRF-Protection": "1",
         },
-        body: JSON.stringify({
-          accountType: "staff",
-          email: invitation.email,
-          fullName: invitation.fullName,
-          roleKey: invitation.roleKey,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -114,7 +130,7 @@ export function ManageInvitations({
 
       {invitations.length === 0 ? (
         <p className="text-sm leading-6 text-slate-600">
-          No staff invitations have been issued.
+          No invitations have been issued.
         </p>
       ) : (
         <div className="overflow-x-auto">

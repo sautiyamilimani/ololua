@@ -15,6 +15,7 @@ import { customers } from "./schema/customers";
 import { customerMeterAccounts } from "./schema/customer-meter-accounts";
 import { meters } from "./schema/meters";
 import { meterAssignments } from "./schema/meter-assignments";
+import { settings } from "./schema/settings";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -28,6 +29,11 @@ const pool = new Pool({ connectionString: localConnectionString, ssl: false });
 const db = drizzle(pool, { schema });
 
 async function seed() {
+  await db.insert(settings).values({
+    key: "invoice_due_days",
+    value: "30",
+    description: "Number of calendar days from invoice issue to due date",
+  }).onConflictDoNothing();
   await db.insert(roles).values([
     { roleKey: "admin", displayName: "Administrator", isSystemRole: true },
     { roleKey: "customer", displayName: "Customer", isSystemRole: true },
@@ -37,23 +43,54 @@ async function seed() {
   ]).onConflictDoNothing();
 
   await db.insert(permissions).values([
+    { permissionKey: "customers.read", displayName: "Read Customers", module: "customers" },
     { permissionKey: "customers.manage", displayName: "Manage Customers", module: "customers" },
     { permissionKey: "invitations.create_customer", displayName: "Invite Customer Users", module: "invitations" },
     { permissionKey: "readings.submit", displayName: "Submit Meter Readings", module: "meter_readings" },
     { permissionKey: "payments.record", displayName: "Record Payments", module: "payments" },
+    { permissionKey: "meters.read", displayName: "Read Meters", module: "meters" },
+    { permissionKey: "meters.manage", displayName: "Manage Meters", module: "meters" },
   ]).onConflictDoNothing();
 
   const [adminRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, "admin")).limit(1);
+  const [superadminRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, "superadmin")).limit(1);
+  const [billingOfficerRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, "billing_officer")).limit(1);
+  const [meterReaderRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, "meter_reader")).limit(1);
+  const [readCustomersPermission] = await db.select({ id: permissions.id }).from(permissions).where(eq(permissions.permissionKey, "customers.read")).limit(1);
   const [manageCustomersPermission] = await db.select({ id: permissions.id }).from(permissions).where(eq(permissions.permissionKey, "customers.manage")).limit(1);
   const [submitReadingsPermission] = await db.select({ id: permissions.id }).from(permissions).where(eq(permissions.permissionKey, "readings.submit")).limit(1);
   const [recordPaymentsPermission] = await db.select({ id: permissions.id }).from(permissions).where(eq(permissions.permissionKey, "payments.record")).limit(1);
+  const [readMetersPermission] = await db.select({ id: permissions.id }).from(permissions).where(eq(permissions.permissionKey, "meters.read")).limit(1);
+  const [manageMetersPermission] = await db.select({ id: permissions.id }).from(permissions).where(eq(permissions.permissionKey, "meters.manage")).limit(1);
 
-  if (!adminRole || !manageCustomersPermission || !submitReadingsPermission || !recordPaymentsPermission) {
+  if (
+    !adminRole ||
+    !superadminRole ||
+    !billingOfficerRole ||
+    !meterReaderRole ||
+    !readCustomersPermission ||
+    !manageCustomersPermission ||
+    !submitReadingsPermission ||
+    !recordPaymentsPermission ||
+    !readMetersPermission ||
+    !manageMetersPermission
+  ) {
     throw new Error("Seed role or permission lookup failed.");
   }
 
   await db.insert(rolePermissions).values([
+    { roleId: adminRole.id, permissionId: readCustomersPermission.id },
+    { roleId: superadminRole.id, permissionId: readCustomersPermission.id },
+    { roleId: billingOfficerRole.id, permissionId: readCustomersPermission.id },
+    { roleId: meterReaderRole.id, permissionId: readCustomersPermission.id },
+    { roleId: adminRole.id, permissionId: readMetersPermission.id },
+    { roleId: superadminRole.id, permissionId: readMetersPermission.id },
+    { roleId: billingOfficerRole.id, permissionId: readMetersPermission.id },
+    { roleId: meterReaderRole.id, permissionId: readMetersPermission.id },
     { roleId: adminRole.id, permissionId: manageCustomersPermission.id },
+    { roleId: superadminRole.id, permissionId: manageCustomersPermission.id },
+    { roleId: superadminRole.id, permissionId: manageMetersPermission.id },
+    { roleId: adminRole.id, permissionId: manageMetersPermission.id },
     { roleId: adminRole.id, permissionId: submitReadingsPermission.id },
     { roleId: adminRole.id, permissionId: recordPaymentsPermission.id },
   ]).onConflictDoNothing();
@@ -104,7 +141,6 @@ async function seed() {
     .from(serviceTariffs)
     .where(and(
       eq(serviceTariffs.serviceVariantId, variant.id),
-      eq(serviceTariffs.effectiveFrom, "2026-01-01"),
       eq(serviceTariffs.status, "ACTIVE"),
     ))
     .limit(1);
@@ -113,7 +149,7 @@ async function seed() {
     await db.insert(serviceTariffs).values({
       serviceVariantId: variant.id,
       rate: "50.00",
-      effectiveFrom: "2026-01-01",
+      effectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
       effectiveTo: null,
       status: "ACTIVE",
     });

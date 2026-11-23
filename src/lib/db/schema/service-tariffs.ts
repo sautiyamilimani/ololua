@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, date, numeric, pgTable, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { check, numeric, pgTable, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 import { serviceVariants } from "./service-variants";
 import { users } from "./users";
 
@@ -9,8 +9,8 @@ export const serviceTariffs = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     serviceVariantId: uuid("service_variant_id").notNull().references(() => serviceVariants.id, { onDelete: "restrict" }),
     rate: numeric("rate", { precision: 12, scale: 2 }).notNull(),
-    effectiveFrom: date("effective_from").notNull(),
-    effectiveTo: date("effective_to"),
+    effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(),
+    effectiveTo: timestamp("effective_to", { withTimezone: true }),
     status: varchar("status", { length: 20 }).notNull().default("DRAFT"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

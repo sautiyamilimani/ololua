@@ -25,7 +25,7 @@ export const instant = false;
 
 export const metadata: Metadata = {
   title: "Manage invitations | Ololua Water Services",
-  description: "View and manage staff account invitations.",
+  description: "View and manage staff and customer account invitations.",
   referrer: "no-referrer",
   robots: { index: false, follow: false },
 };
@@ -77,11 +77,13 @@ export default async function ManageInvitationsPage() {
   const rows = await db
     .select({
       id: invitations.id,
+      customerId: invitations.customerId,
       status: invitations.status,
       invitedEmail: invitations.invitedEmail,
       createdAt: invitations.createdAt,
       expiresAt: invitations.expiresAt,
       fullName: users.fullName,
+      accountType: users.accountType,
       roleKey: roles.roleKey,
       roleName: roles.displayName,
     })
@@ -118,6 +120,8 @@ export default async function ManageInvitationsPage() {
       id: row.id,
       fullName: row.fullName,
       email: row.invitedEmail,
+      accountType: row.accountType,
+      customerId: row.customerId,
       roleKey: row.roleKey,
       roleName: row.roleName,
       status: row.status as InvitationListItem["status"],
@@ -142,8 +146,8 @@ export default async function ManageInvitationsPage() {
           Manage invitations
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          Review invitation and email delivery states. Pending invitations can
-          be resent or revoked.
+          Review staff and customer invitation and email delivery states.
+          Pending invitations can be resent or revoked.
         </p>
       </header>
       <ManageInvitations invitations={list} />

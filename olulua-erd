@@ -366,6 +366,58 @@ customer_meter_payment_allocations [icon: git-merge, color: "#0891b2"] {
   created_at timestamptz "not null"
 }
 
+customer_account_credit_entries [icon: wallet-cards, color: "#047857"] {
+  id uuid pk
+  customer_meter_account_id uuid fk
+  entry_type varchar(40) "not null: PAYMENT_CREDIT | ALLOCATION | TRANSFER_IN | TRANSFER_OUT | REVERSAL"
+  amount numeric(12,2) "signed, never zero"
+  payment_id uuid fk "nullable"
+  transfer_id uuid fk "nullable"
+  idempotency_key varchar(100) "unique not null"
+  created_by uuid fk
+  created_at timestamptz "not null"
+}
+
+customer_account_credit_transfers [icon: arrow-left-right, color: "#7c3aed"] {
+  id uuid pk
+  from_account_id uuid fk
+  to_account_id uuid fk
+  amount numeric(12,2) "not null > 0"
+  status varchar(20) "not null: PENDING | CONFIRMED | REVOKED | EXPIRED | FAILED"
+  token_hash varchar(64) "unique, nullable"
+  sender_token_hash varchar(64) "unique, nullable"
+  recipient_token_hash varchar(64) "unique, nullable"
+  recipient_email varchar(254) "nullable"
+  sender_approved_at timestamptz
+  recipient_confirmed_at timestamptz
+  expires_at timestamptz
+  revoked_at timestamptz
+  reversal_reason text
+  created_by uuid fk
+  created_at timestamptz "not null"
+  updated_at timestamptz "not null"
+}
+
+payment_reversals [icon: rotate-ccw, color: "#be123c"] {
+  id uuid pk
+  payment_id uuid fk "one reversal per payment"
+  reversed_by uuid fk
+  reason text "not null"
+  reversed_at timestamptz "not null"
+  created_at timestamptz "not null"
+}
+
+payment_allocation_reversals [icon: undo-2, color: "#c2410c"] {
+  id uuid pk
+  reversal_id uuid fk
+  payment_id uuid fk
+  billing_id uuid fk
+  customer_meter_account_id uuid fk
+  reversed_amount numeric(12,2) "not null > 0"
+  created_by uuid fk
+  created_at timestamptz "not null"
+}
+
 // ==========================================
 // RELATIONSHIPS
 // ==========================================

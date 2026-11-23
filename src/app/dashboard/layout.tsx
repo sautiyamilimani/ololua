@@ -7,6 +7,11 @@ import {
   isValidSessionToken,
   SESSION_COOKIE_NAME,
 } from "@/lib/auth/session-token";
+import {
+  CUSTOMER_READ_PERMISSION,
+  userHasPermission,
+} from "@/lib/auth/permissions";
+import { METER_READ_PERMISSION } from "@/lib/auth/permissions";
 
 export const instant = false;
 
@@ -26,10 +31,25 @@ export default async function DashboardLayout({
   if (!session) {
     redirect("/sign-in");
   }
+  const canReadCustomers =
+    session.user.accountType === "staff" &&
+    await userHasPermission(session.user.id, CUSTOMER_READ_PERMISSION);
+  const canReadMeters =
+    session.user.accountType === "staff" &&
+    await userHasPermission(session.user.id, METER_READ_PERMISSION);
+  const bottomNavVariant =
+    session.user.accountType === "customer"
+      ? "customer"
+      : session.canManageStaffAccounts
+        ? "admin"
+        : "officer";
 
   return (
     <DashboardShell
       canManageStaffAccounts={session.canManageStaffAccounts}
+      canReadCustomers={canReadCustomers}
+      canReadMeters={canReadMeters}
+      bottomNavVariant={bottomNavVariant}
       fullName={session.user.fullName}
     >
       {children}

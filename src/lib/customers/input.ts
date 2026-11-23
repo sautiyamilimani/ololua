@@ -1,0 +1,197 @@
+import { isRecord } from "@/lib/auth/request";
+
+export type CustomerType = "individual" | "business";
+export type CustomerStatus = "active" | "inactive";
+
+export type CreateCustomerInput = {
+  customerType: CustomerType;
+  fullName: string;
+  phone: string;
+  email: string;
+  physicalAddress: string | null;
+  locationDescription: string | null;
+  notes: string | null;
+};
+
+export type UpdateCustomerInput = {
+  customerType?: CustomerType;
+  fullName?: string;
+  phone?: string;
+  email?: string;
+  physicalAddress?: string | null;
+  locationDescription?: string | null;
+  notes?: string | null;
+  status?: CustomerStatus;
+};
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+const CREATE_FIELDS = new Set([
+  "customerType",
+  "fullName",
+  "phone",
+  "email",
+  "physicalAddress",
+  "locationDescription",
+  "notes",
+]);
+const UPDATE_FIELDS = new Set([...CREATE_FIELDS, "status"]);
+
+function hasOnlyFields(
+  value: Record<string, unknown>,
+  allowedFields: ReadonlySet<string>,
+): boolean {
+  return Object.keys(value).every((field) => allowedFields.has(field));
+}
+
+function parseCustomerType(value: unknown): CustomerType | null {
+  return value === "individual" || value === "business" ? value : null;
+}
+
+function parseCustomerStatus(value: unknown): CustomerStatus | null {
+  return value === "active" || value === "inactive" ? value : null;
+}
+
+function parseRequiredText(value: unknown, maxLength: number): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const text = value.trim();
+  return text.length > 0 && text.length <= maxLength ? text : null;
+}
+
+function parseOptionalText(
+  value: unknown,
+): { valid: true; value: string | null } | { valid: false } {
+  if (value === null) {
+    return { valid: true, value: null };
+  }
+
+  if (typeof value !== "string") {
+    return { valid: false };
+  }
+
+  return { valid: true, value: value.trim() };
+}
+
+function parseEmail(value: unknown): string | null {
+  const email = parseRequiredText(value, 254)?.toLowerCase();
+  return email && EMAIL_PATTERN.test(email) ? email : null;
+}
+
+export function parseCreateCustomerInput(
+  value: unknown,
+): CreateCustomerInput | null {
+  if (!isRecord(value) || !hasOnlyFields(value, CREATE_FIELDS)) {
+    return null;
+  }
+
+  const customerType = parseCustomerType(value.customerType);
+  const fullName = parseRequiredText(value.fullName, 150);
+  const phone = parseRequiredText(value.phone, 20);
+  const email = parseEmail(value.email);
+  const physicalAddress =
+    value.physicalAddress === undefined
+      ? { valid: true as const, value: null }
+      : parseOptionalText(value.physicalAddress);
+  const locationDescription =
+    value.locationDescription === undefined
+      ? { valid: true as const, value: null }
+      : parseOptionalText(value.locationDescription);
+  const notes =
+    value.notes === undefined
+      ? { valid: true as const, value: null }
+      : parseOptionalText(value.notes);
+
+  if (
+    !customerType ||
+    !fullName ||
+    !phone ||
+    !email ||
+    !physicalAddress.valid ||
+    !locationDescription.valid ||
+    !notes.valid
+  ) {
+    return null;
+  }
+
+  return {
+    customerType,
+    fullName,
+    phone,
+    email,
+    physicalAddress: physicalAddress.value,
+    locationDescription: locationDescription.value,
+    notes: notes.value,
+  };
+}
+
+export function parseUpdateCustomerInput(
+  value: unknown,
+): UpdateCustomerInput | null {
+  if (
+    !isRecord(value) ||
+    !hasOnlyFields(value, UPDATE_FIELDS) ||
+    Object.keys(value).length === 0
+  ) {
+    return null;
+  }
+
+  const input: UpdateCustomerInput = {};
+
+  if ("customerType" in value) {
+    const customerType = parseCustomerType(value.customerType);
+    if (!customerType) {
+      return null;
+    }
+    input.customerType = customerType;
+  }
+
+  if ("fullName" in value) {
+    const fullName = parseRequiredText(value.fullName, 150);
+    if (!fullName) {
+      return null;
+    }
+    input.fullName = fullName;
+  }
+
+  if ("phone" in value) {
+    const phone = parseRequiredText(value.phone, 20);
+    if (!phone) {
+      return null;
+    }
+    input.phone = phone;
+  }
+
+  if ("email" in value) {
+    const email = parseEmail(value.email);
+    if (!email) {
+      return null;
+    }
+    input.email = email;
+  }
+
+  for (const field of [
+    "physicalAddress",
+    "locationDescription",
+    "notes",
+  ] as const) {
+    if (field in value) {
+      const parsed = parseOptionalText(value[field]);
+      if (!parsed.valid) {
+        return null;
+      }
+      input[field] = parsed.value;
+    }
+  }
+
+  if ("status" in value) {
+    const status = parseCustomerStatus(value.status);
+    if (!status) {
+      return null;
+    }
+    input.status = status;
+  }
+
+  return input;
+}

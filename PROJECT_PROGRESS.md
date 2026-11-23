@@ -25,7 +25,7 @@ Build a reliable Water Services Management Information System for Ololua. Correc
 
 ## 4. Current stage and progress
 
-**Current stage: Stage 4 - Frontend (sign-in, invitation acceptance, password-reset request, reset, and authenticated password-change pages approved).**
+**Current stage: Stage 2 - Backend Route Handlers (customer list, detail, create, and update APIs complete).** Stage 1 customer email uniqueness and sequence migrations are applied and verified. Broader Stage 2 operational APIs and Stage 3 business logic remain. Earlier Stage 4 frontend work remains implemented; no new frontend work was done.
 
 Completed in the initial task:
 
@@ -446,9 +446,9 @@ Remaining boundaries at invitation-issuance completion: invitation email deliver
 
 ## 9. Next step
 
-Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. The approved focused Stage 4 slices for sign-in, invitation acceptance, password-reset request, and password reset are complete in sections 13-15. Broader frontend and PWA work is not approved. Outbox sending remains disabled by default.
+Stage 3 login/session/logout, invitation acceptance/issuance, password reset, and SMTP outbox delivery are implemented. Stage 4 includes the authentication pages, staff account management, and the approved customer invitation UI. A full customer portal and PWA work are not yet approved. Outbox sending remains disabled by default.
 
-Next step: verify sign-in from the user's phone using one consistent LAN origin and a matching development `APP_ORIGIN`. Obtain separate scope/approval before expanding Stage 4. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable application origin and review sender deliverability.
+Next step: choose and approve the next customer-facing slice, such as a read-only customer directory. Before enabling outbox delivery, set `APP_ORIGIN` to the reachable application origin and review sender deliverability.
 
 ---
 
@@ -510,7 +510,7 @@ At worker completion, the next step was to request Stage 4 approval for those pa
 
 This section is the current continuation note for a fresh Copilot session/account. Read `AGENTS.md`, this progress file, and the relevant API contract before making changes; do not rely on the previous conversation being available.
 
-- Current approved scope: Stage 4 - the sign-in, invitation acceptance, password-reset request, and reset pages only. Do not expand to other frontend features or PWA work without further approval.
+- Current approved scope: Stage 4 authentication pages, staff account management, and customer invitations. A full customer portal and PWA work still require separate approval.
 - The invitation, login/session/logout, and password-reset APIs and the one-shot SMTP outbox worker are implemented. The `/sign-in`, `/accept-invitation`, `/forgot-password`, and `/reset-password` pages are implemented; see sections 13-15.
 - One explicitly approved local-development superadmin setup email was sent and marked sent after the user confirmed sender review. No other queued application email was sent. For future sends, require a reachable `APP_ORIGIN` and sender review; SMTP acceptance does not guarantee inbox placement, and the earlier standalone Gmail test landed in Spam.
 - Migration `0012_add_invitation_customer_targets.sql` was applied to the loopback development database; the Drizzle journal has 13 entries. No production migration or production data change was made.
@@ -518,7 +518,7 @@ This section is the current continuation note for a fresh Copilot session/accoun
 - Verification recorded for this implementation: TypeScript, lint, auth unit/integration tests, email outbox integration tests, production build, Drizzle generation, SMTP credential verification (no email sent), and production dependency audit passed. See section 11 for exact commands and results; do not rerun SMTP sending as a handoff check.
 - Before future database changes, confirm the supplied ERD is available; it was provided as a conversation attachment and is not stored in the repository. Do not infer missing schema/business rules.
 
-Recommended next action: verify phone sign-in after restarting the dev server with `APP_ORIGIN` set to the LAN origin, and use that same origin from both phone and laptop. Obtain separate approval before taking on any other frontend or PWA feature.
+Recommended next action: choose the next customer-facing feature; a read-only customer directory is a bounded follow-up. Do not begin PWA work without separate approval.
 
 - A separate `.env.example` modification was present during earlier Stage 4 work and was deliberately left untouched. The latest status check no longer shows a working-tree change for that file.
 
@@ -1378,3 +1378,733 @@ Verification:
 - Browser verification of the new activity history was not run.
 
 Recommended next action: browser-verify the staff activity history with approved development accounts, including role changes, suspension/reactivation, actor names, and the empty state.
+
+## Customer invitation UI task (complete)
+
+**Current approved stage:** Stage 4 - Frontend. The user asked to move to customer work and approved expanding the Stage 4 scope. This implementation is limited to the customer invitation flow; it does not add a customer portal or PWA features.
+
+Completed:
+
+- Added a customer invitation form to the protected invite-users page. It lists existing customers without an active portal-user link and sends only the selected customer ID to the existing invitation API.
+- Updated invitation management so resending a customer invitation uses its customer ID and customer account type rather than the staff invitation payload.
+- Preserved server-side API authorization and data resolution. No customer name, email, role, or user ID is trusted from the form.
+- Updated the invitation API contract documentation. No schema, migration, or new API endpoint was needed.
+
+Files changed for this task:
+
+- `src/app/dashboard/accounts/invite/page.tsx`
+- `src/app/dashboard/accounts/invitations/page.tsx`
+- `src/components/auth/invite-customer-form.tsx`
+- `src/components/auth/manage-invitations.tsx`
+- `docs/api/invitations.md`
+- `PROJECT_PROGRESS.md`
+
+Decisions and ambiguities:
+
+- Customer invitations are available in the existing admin/superadmin invitation UI. The API continues to enforce the broader permission policy for authorized staff.
+- Customers with an active portal-user link are omitted; pending invitations remain eligible for reissue through the existing API.
+- The project has no approved finite feature backlog. ERD tables are not one-to-one with user-facing implementations; no exact remaining implementation count is claimed.
+
+Verification:
+
+- `npm run test:auth`: passed, 14 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- No migration, live database operation, email delivery, or browser verification was run.
+
+Recommended next action: implement a read-only customer directory with customer details, using the existing customer schema. Confirm any additional fields or actions before expanding beyond read-only access.
+
+## Customer backend priority update
+
+**User direction (2026-11-22):** Build the customer backend and follow the defined development stages strictly. Do not advance to more customer-facing frontend work until the customer backend work has passed through the required backend and business-logic stages.
+
+Current facts:
+
+- Stage 1 customer and water-service schemas are already present in the database design and migrations.
+- Stage 2 includes customer-targeted invitation issuance and acceptance, but there are no general customer list, detail, create, or update APIs.
+- Customer meter, reading, billing, and payment tables exist, but their operational APIs and business logic are not implemented.
+- The customer invitation UI is already implemented; this does not mean the customer backend is complete.
+
+Required order for the customer initiative:
+
+1. Define and implement Stage 2 customer API contracts and Route Handlers.
+2. Implement the corresponding Stage 3 business logic and transactional rules.
+3. Only then add further Stage 4 customer directory or portal UI.
+4. Do not begin Stage 5 PWA work without separate approval.
+
+Open decisions that must not be guessed for customer write APIs:
+
+- Customer email requiredness and uniqueness: the ERD says the email is required before invitation, while the implemented schema currently marks it non-null; uniqueness is unspecified.
+- Customer-number generation or assignment is not defined by the ERD.
+
+Stage 2 API decisions received:
+
+- The first slice is read-only customer list and detail APIs.
+- Staff access must be based on an explicit customer-read permission.
+- Use a separate `customers.read` permission, not the broader `customers.manage` permission.
+- Grant `customers.read` to all seeded staff roles: `admin`, `superadmin`, `billing_officer`, and `meter_reader`. Do not grant it to the `customer` role.
+
+Stage 2 read API slice (in progress):
+
+- Added `GET /api/customers` with bounded `limit`/`offset` pagination and `GET /api/customers/{customerId}` for one customer.
+- Both handlers require an active staff session and the explicit `customers.read` permission.
+- Added the permission and staff-role grants to the development seed. No schema migration was needed.
+- Added `docs/api/customers.md` as the contract and pagination tests in `src/lib/customers/query.test.ts`.
+
+Stage 2 read API slice (complete):
+
+- `GET /api/customers` and `GET /api/customers/{customerId}` are implemented.
+- The handlers return `401 UNAUTHENTICATED` without a session and `403 FORBIDDEN` for staff sessions without `customers.read`.
+- Pagination defaults to 50 rows, limits rows to 100, limits offsets to 10,000, rejects malformed or duplicate parameters, and returns `hasMore`.
+- The development seed grants `customers.read` to `admin`, `superadmin`, `billing_officer`, and `meter_reader`; the customer role receives no read permission.
+- Live loopback database verification returned exactly those four role keys for `customers.read`.
+
+Verification:
+
+- `npm run test:customers`: passed, 2 tests.
+- `npm run test:auth`: passed, 14 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed; Next.js registered `/api/customers` and `/api/customers/[customerId]`.
+- Live loopback probe `GET /api/customers?limit=1`: HTTP 401 without a session.
+- `npm run db:seed`: passed against the loopback development database.
+- Live loopback SQL verification: `admin`, `billing_officer`, `meter_reader`, and `superadmin` grants for `customers.read`.
+- `git diff --check`: passed.
+- No migration or production database operation was performed.
+
+## Customer write API decisions
+
+- `POST /api/customers` and `PATCH /api/customers/{customerId}` are the next Stage 2 API slice.
+- Staff authorization will require the existing `customers.manage` permission.
+- Customer status on create is `active`.
+- Customer numbers are generated automatically using the `OLO-` prefix and a six-digit sequence.
+- Customer email uniqueness is database-enforced case-insensitively.
+- The read-only API slice remains complete; no frontend or PWA work was added.
+
+## Customer write database step
+
+- Generated migration `drizzle/0014_gorgeous_chat.sql`.
+- Reviewed SQL: `CREATE UNIQUE INDEX "customers_email_lower_unique" ON "customers" USING btree (lower("email"));`
+- This enforces case-insensitive uniqueness for every non-null customer email already required by the schema.
+- The user approved applying this migration to the loopback development database, and `npm run db:migrate` reported success.
+- `npm run db:seed` completed against the loopback development database after adding the customer-read permission grants.
+- Added `src/lib/db/schema/customers.integration.test.ts`, which inserts a valid customer, rejects a mixed-case duplicate with SQLSTATE `23505` and the expected constraint name, verifies the live index definition, and cleans up fixture rows.
+- `npm run test:customers:db` passed against the loopback database. `npx tsc --noEmit` and `npm run lint` passed after adding the integration test.
+- No migration or database operation was run against production.
+- Stage 1 is complete. Customer write Route Handlers are the active Stage 2 task; no customer write business logic has been implemented yet.
+
+## Customer number sequence database step (complete)
+
+- Added the Drizzle `customers_customer_number_seq` sequence, starting at 1 and incrementing by 1. Generated customer numbers will use `OLO-` plus at least six zero-padded digits.
+- Generated migration `drizzle/0015_amusing_bedlam.sql` and reviewed its sequence creation.
+- Added reviewed SQL to initialize the next value above any existing customer number matching `OLO-` followed by six or more digits. This avoids collisions with existing generated-format numbers.
+- Gaps are allowed as confirmed; PostgreSQL sequences are concurrency-safe but are not transactional, so failed/rolled-back creates can consume a number.
+- The user approved applying migration 0015 to the loopback development database, and `npm run db:migrate` reported success.
+- `npm run test:customers:db` passed: the valid email insert succeeded, a case-variant duplicate was rejected with the expected unique constraint, the live index was verified, and the fixture rows were cleaned up.
+- The same loopback integration suite verified the first sequence value is one greater than any existing `OLO-` numeric suffix and the sequence advances by one. Test calls consume sequence values; this is expected because gaps are allowed.
+- `npm run db:generate` reports no schema changes after migration generation and application.
+- Migration `0015` was applied only to the loopback development database; no production database was touched.
+- Stage 1 is complete.
+
+## Customer create/update APIs (Stage 2 slice complete)
+
+Confirmed rules:
+
+- Require `customers.manage`, as granted through `role_permissions`.
+- Generate `OLO-` customer numbers from the PostgreSQL sequence, pad to at least six digits, and allow gaps.
+- Create customers with `active` status.
+- Enforce case-insensitive email uniqueness.
+- PATCH may update name, phone, email, customer type, address, location description, notes, and active/inactive customer status. Customer number is immutable.
+- Email changes are blocked while an active portal-user link or unexpired pending invitation exists.
+- Setting a customer record inactive does not change a separate portal user's login status or sessions.
+
+Implementation:
+
+- Added `POST /api/customers` and `PATCH /api/customers/{customerId}` with JSON/body-size validation, CSRF/origin checks, typed error responses, and the common no-store envelope.
+- Revalidates the active staff session and `customers.manage` grant inside the transaction; locks session, actor, and target customer rows as applicable.
+- Updates customer records transactionally. Duplicate emails and blocked email changes return `409 CUSTOMER_CONFLICT`.
+- Added create/update input validators and unit tests, transactional management integration tests, and documented the API in `docs/api/customers.md`.
+- No frontend, migration beyond approved migrations 0014/0015, or production database operation was performed.
+
+Files changed for this Stage 2 slice:
+
+- `src/app/api/customers/route.ts`
+- `src/app/api/customers/[customerId]/route.ts`
+- `src/lib/customers/input.ts`
+- `src/lib/customers/management.ts`
+- `src/lib/customers/input.test.ts`
+- `src/lib/customers/management.integration.test.ts`
+- `src/lib/auth/response.ts`
+- `src/lib/auth/permissions.ts`
+- `src/lib/db/schema/customers.ts`
+- `src/lib/db/schema/customers.integration.test.ts`
+- `drizzle/0014_gorgeous_chat.sql`
+- `drizzle/0015_amusing_bedlam.sql`
+- `docs/api/customers.md`
+- `package.json`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npm run test:customers`: passed, 5 unit tests.
+- `npm run test:customers:db`: passed, 5 loopback PostgreSQL integration tests, including customer creation, generated numbering, updates, duplicate email rejection, permission denial, and email-change restrictions.
+- `npm run test:auth`: passed, 14 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed; Next.js registered `/api/customers` and `/api/customers/[customerId]`.
+- `npm run db:generate`: passed with no schema changes after migration application.
+- `git diff --check`: passed.
+- Final recheck after adding the duplicate-email update assertion: `npm run test:customers` passed (5 tests), `npm run test:customers:db` passed (5 loopback PostgreSQL integration tests), `npx tsc --noEmit` passed, `npm run lint` passed, and `git diff --check` passed. The customer work remains uncommitted.
+
+Next action: obtain approval to begin Stage 3 customer business logic, starting with customer/account relationships and the applicable transaction rules. Do not start further frontend work.
+
+## Customer meter account relationship slice (complete)
+
+Confirmed decisions:
+
+- One customer meter account may have multiple active meter assignments.
+- Customer meter account numbers are generated automatically using the `OLO-` prefix and a six-digit sequence.
+- Account creation requires an active customer, an active service variant, and an existing optional zone.
+- New accounts start in `ACTIVE` status.
+- Sequence gaps are allowed after failed or rolled-back account creates.
+
+Implementation:
+
+- Added `customer_meter_accounts_account_number_seq` to the Drizzle account schema.
+- Generated migration `drizzle/0016_bored_moonstone.sql`.
+- Reviewed migration SQL and initialized existing `OLO-` account numbers to avoid collisions.
+- Added `src/lib/customer-meter-accounts/input.ts` for strict account-create input validation.
+- Added `src/lib/customer-meter-accounts/management.ts` for transaction-based account creation and parent-state validation.
+- Added unit and loopback PostgreSQL integration tests for input, inactive customers, numbering, and sequence advancement.
+- No account Route Handler or frontend work was added.
+
+Verification:
+
+- Migration `0016_bored_moonstone.sql` was applied only to the loopback development database after explicit approval.
+- `npm run test:customer-meter-accounts`: passed, 2 unit tests.
+- `npm run test:customer-meter-accounts:db`: passed, 3 loopback PostgreSQL integration tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run db:generate`: passed with no schema changes.
+- `git diff --check`: passed.
+- No production database operation or email delivery was performed.
+
+Next action: add the Stage 3 account lifecycle slice for `SUSPENDED` and `CLOSED` transitions, or obtain approval for the next meter-assignment rule. Do not start account API or frontend work in the same task.
+
+## Customer account lifecycle (Stage 3 complete)
+
+Confirmed decisions:
+
+- Allowed transitions are `ACTIVE -> SUSPENDED`, `SUSPENDED -> ACTIVE`, `ACTIVE or SUSPENDED -> CLOSED`, and `CLOSED -> ACTIVE`.
+- Reopening a closed account returns it to `ACTIVE`; reopening directly to `SUSPENDED` is not allowed.
+- Lifecycle changes preserve active meter assignments. Suspension and closure block later reading business operations, but do not remove historical assignment rows.
+- Account lifecycle changes require `customers.manage`, an active verified staff session, row locking, and an audit log entry.
+
+Implementation:
+
+- Added `src/lib/customer-meter-accounts/lifecycle-state.ts` with the pure lifecycle transition matrix.
+- Added `src/lib/customer-meter-accounts/lifecycle.ts` with transaction, authorization, session-renewal, row-lock, status-change, and audit behavior.
+- Added unit and loopback PostgreSQL integration tests.
+- No schema migration or account API Route Handler was added.
+
+Verification:
+
+- `npm run test:customer-meter-accounts`: passed, 4 unit tests.
+- `npm run test:customer-meter-accounts:db`: passed, 5 loopback PostgreSQL integration tests.
+- No production database operation or email delivery was performed.
+
+Next action: continue Stage 3 with meter assignment and removal rules, starting with active-meter exclusivity and assignment history behavior. Do not advance to readings, billing, payments, or frontend work in the same task.
+
+## Meter assignment and removal (Stage 3 complete)
+
+Confirmed decisions:
+
+- One physical meter may have only one active assignment.
+- An account may have multiple active meters.
+- New assignments require an active meter and an active customer meter account.
+- The assignment opening reading is `0.000`.
+- Removal requires a non-empty reason.
+- Removed assignments remain in history with `removedAt`, `removedBy`, and `removalReason`.
+- A meter may be reassigned immediately after removal.
+
+Implementation:
+
+- Added pure assignment-state validation in `src/lib/meter-assignments/state.ts`.
+- Added transactional assignment/removal logic in `src/lib/meter-assignments/management.ts`.
+- Assignment and removal require `customers.manage`, revalidate the staff session and actor, lock relevant rows, and write audit entries.
+- Duplicate active assignment attempts are guarded by the existing partial unique index and application conflict handling.
+- No schema migration or Route Handler was added.
+
+Verification:
+
+- `npm run test:meter-assignments`: passed, 2 unit tests.
+- `npm run test:meter-assignments:db`: passed, 1 loopback PostgreSQL integration test.
+- No production database operation or email delivery was performed.
+
+Next action: implement meter reading business logic, including first-reading baseline, locked sequential readings, duplicate prevention, zero/unusual consumption handling, and preserved accepted history.
+
+## Meter readings (Stage 3 complete)
+
+Confirmed decisions:
+
+- Accepted readings use the first assignment reading of `0.000` until the first preceding accepted reading exists.
+- Later readings use the latest accepted reading at or before the submitted reading time.
+- Current reading must be greater than or equal to previous reading.
+- Consumption is stored as an exact three-decimal numeric difference.
+- Reading submission requires `readings.submit`, an active verified staff session, an active meter, an active account, and a currently active assignment.
+- Duplicate prevention uses both the idempotency key and `(meter_assignment_id, reading_at)`.
+- Zero consumption is accepted and is not silently edited or deleted.
+- An unusual-consumption threshold is not yet confirmed, so this slice stores `unusualConsumptionFlag = false` and does not invent a threshold.
+- Backdated readings are allowed only when the submitter provides a non-empty approval reason. The submitter is recorded in audit metadata.
+
+Implementation:
+
+- Added strict meter-reading input validation in `src/lib/meter-readings/input.ts`.
+- Added exact decimal consumption state logic in `src/lib/meter-readings/state.ts`.
+- Added transaction-based reading acceptance in `src/lib/meter-readings/management.ts`.
+- The transaction locks the session, actor, assignment, meter, account, and previous-reading state.
+- Accepted readings are historical records; there is no update or delete flow.
+- Existing migration constraints already enforce nondecreasing readings and exact consumption snapshots.
+
+Verification:
+
+- `npm run test:meter-readings`: passed, 4 unit tests.
+- `npm run test:meter-readings:db`: passed, 1 loopback PostgreSQL integration test.
+- `npx tsc --noEmit`: passed after replacing BigInt literals with ES2019-compatible `BigInt(...)` calls.
+- `npm run lint`: passed.
+- `npm run db:generate`: passed with no schema changes.
+- `git diff --check`: passed.
+- No production database operation or email delivery was performed.
+
+Next action: implement tariff applicability and active-period overlap rules before meter billing. Do not start billing, payments, or frontend work in the same task.
+
+## Service tariffs (Stage 3 complete)
+
+Confirmed decisions:
+
+- `effective_from` and `effective_to` are `timestamptz` values.
+- Activating a tariff closes the prior active tariff exactly at the new tariff's `effective_from` instant.
+- Historical tariff periods and invoice tariff snapshots are preserved.
+- Only `admin` and `superadmin` may activate draft tariffs.
+- Active periods for the same service variant cannot overlap.
+
+Implementation:
+
+- Migration `0017_hot_hiroim.sql` converts tariff effective columns to `timestamptz`.
+- Migration `0017` drops the old date-range exclusion and adds `service_tariffs_active_period_exclude` using `tstzrange`.
+- Added pure half-open period-overlap logic in `src/lib/service-tariffs/state.ts`.
+- Added transactional tariff activation in `src/lib/service-tariffs/management.ts`.
+- Activation closes earlier open/overlapping prior periods at the new effective instant and writes an audit entry.
+
+Verification:
+
+- `npm run test:tariffs`: passed, 1 unit test.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run db:generate`: passed with no schema changes.
+- Live loopback verification confirmed both effective columns are `timestamp with time zone` and the exclusion constraint exists.
+- Migration `0017` was applied to the loopback database only.
+- `git diff --check`: passed.
+- No production database operation or email delivery was performed.
+
+Next action: implement invoice generation for accepted meter readings, preserving reading values and tariff-rate snapshots. Do not start payments or frontend work in the same task.
+
+## Meter billing (Stage 3 complete)
+
+Confirmed decisions:
+
+- Every accepted meter reading generates one invoice.
+- Billing periods use the reading interval, with chronological start/end dates for approved backdated readings.
+- Due date uses the `invoice_due_days` setting.
+- Zero-consumption readings generate a `0.00` invoice and set `unusual_consumption_flag = true`.
+- Invoice numbers use `OLO-INV-` plus a PostgreSQL sequence.
+- Invoice amount, reading values, consumption, tariff rate, and period are immutable snapshots.
+
+Implementation:
+
+- Added invoice-number sequence to the billing Drizzle schema.
+- Generated migration `drizzle/0018_glamorous_stardust.sql`, reviewed and initialized existing `OLO-INV-` invoice numbers.
+- Applied migration `0018` to the loopback database only.
+- Added exact meter-billing amount, UTC-date, and due-date helpers in `src/lib/meter-billings/state.ts`.
+- Updated accepted-reading submission to generate the reading and invoice in the same PostgreSQL transaction.
+- Invoice generation selects the active tariff applicable at the reading timestamp and reads `invoice_due_days`.
+- Invoice and reading insertion together enforce one invoice per reading through the existing unique reading foreign key.
+
+Verification:
+
+- `npm run test:meter-billings`: passed, 2 unit tests.
+- `npm run test:meter-readings`: passed, 4 unit tests.
+- `npm run test:meter-readings:db`: passed, 1 loopback integration test covering normal, duplicate, decreasing, zero-consumption, backdated, invoice, and snapshot behavior.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- Migration `0018` applied successfully to the loopback database.
+- No production database operation or email delivery was performed.
+
+Next action: implement payment and allocation business logic, including per-account membership, completed-payment-only allocation, payment/bill caps, reversals, and immutable audit history.
+
+## Payment schema and core allocation (Stage 3 in progress)
+
+Confirmed decisions:
+
+- Manual payments accept `cash`, `mpesa`, `bank`, or `other`.
+- Active customer meter accounts are the only accounts eligible for payment recording.
+- Allocation defaults to oldest outstanding invoice; staff may supply explicit invoice allocations.
+- Unallocated payment amounts are retained as signed standing-credit ledger entries.
+- Same-customer credit transfers are instant and require available credit.
+- Cross-customer transfers require sender and recipient confirmation and expire after 24 hours.
+- Payment reversals preserve original history and add explicit reversal/allocation-reversal records.
+
+Implementation:
+
+- Added credit-entry history, credit transfers, payment reversals, and allocation-reversal tables to the Drizzle schema and ERD copy.
+- Added receipt-number sequencing to the payment schema.
+- Generated migrations `0019_oval_silver_fox.sql` and `0020_gifted_dazzler.sql`.
+- Applied both migrations only to the loopback development database.
+- Added exact payment money helpers and strict payment input validation.
+- Added transactional completed-payment recording with oldest-first allocation or edited allocations, standing-credit entries, invoice status updates, and audit entries.
+
+Verification:
+
+- `npm run test:payments`: passed, 3 unit tests.
+- `npm run test:payments:db`: passed, 1 loopback PostgreSQL integration test.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed with no payment-management errors; two unused-import warnings were removed.
+- No production database operation or email delivery was performed.
+
+Next action: implement reversal and reversal-allocation rows, then cross-account credit transfer confirmation and 24-hour expiry behavior.
+
+## Payment reversals (Stage 3 complete)
+
+Confirmed decisions:
+
+- Reversing a payment preserves original payment and allocation history.
+- Reversal adds explicit `payment_reversals` and `payment_allocation_reversals` rows.
+- Invoice outstanding amounts and statuses are recalculated by subtracting reversed allocations.
+- A reversed payment's unallocated portion becomes positive standing credit through a `REVERSAL` credit-ledger entry.
+
+Implementation:
+
+- Added `src/lib/payments/reversal.ts` with authorization, row locks, reversal creation, allocation-reversal rows, invoice recalculation, credit restoration, payment state update, and audit logging.
+- Added pure reversal effects and invoice-status helpers in `src/lib/payments/reversal-state.ts`.
+- Updated payment allocation totals to exclude allocation reversals.
+- No transfer confirmation or transfer ledger mutation was implemented in this slice.
+
+Verification:
+
+- `npm run test:payment-reversals`: passed, 2 unit tests.
+- `npm run test:payments:db`: passed, including automatic allocation and payment reversal with invoice and standing-credit effects.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- No production database operation or email delivery was performed.
+
+Next action: implement credit transfer business logic, starting with same-customer instant transfers and cross-customer sender/recipient confirmation, including the 24-hour expiry.
+
+## Same-customer instant credit transfer (Stage 3 complete)
+
+Confirmed decisions:
+
+- Instant credit transfer is allowed only between two `ACTIVE` accounts belonging to the same customer master record.
+- The source account must have sufficient available standing credit.
+- Cross-customer transfers are rejected by this instant-transfer path.
+- Transfer creates a `CONFIRMED` transfer record and paired signed ledger entries: negative on source, positive on destination.
+
+Implementation:
+
+- Added stable transfer ledger idempotency helpers in `src/lib/payments/credit-transfer-state.ts`.
+- Added transactional instant transfer logic in `src/lib/payments/credit-transfer.ts`.
+- Authorization requires `payments.record`, an active verified staff session, active source/destination accounts, and matching customer IDs.
+- Account rows and credit balances are locked/rechecked inside the transaction.
+
+Verification:
+
+- `npm run test:credit-transfers`: passed, 1 unit test.
+- `npm run test:credit-transfers:db`: passed, 2 loopback PostgreSQL integration tests for success/insufficient credit and cross-customer rejection.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- No migration or production database operation was performed.
+
+Next action: implement cross-customer approval transfers with sender and recipient confirmation, no standing-credit debit until confirmation, and 24-hour expiry.
+
+## Cross-customer credit approval (Stage 3 complete)
+
+Confirmed decisions:
+
+- Cross-customer transfer requests are staff-created.
+- The source and recipient receive separate opaque confirmation tokens.
+- Source and recipient approvals may arrive in either order.
+- No standing credit is debited or credited until both approvals are complete.
+- Pending transfers expire 24 hours after creation.
+- Insufficient credit or inactive accounts at final approval mark the transfer failed.
+
+Implementation:
+
+- Migration `0021_cool_vampiro.sql` added separate sender and recipient token-hash columns.
+- Added expiry and dual-approval helpers in `src/lib/payments/credit-transfer-approval-state.ts`.
+- Added staff cross-customer request creation and tokenized sender/recipient confirmation logic to `src/lib/payments/credit-transfer.ts`.
+- Confirmation revalidates account state and source credit at the final approval.
+- Confirmed transfers create paired signed ledger entries in one transaction.
+
+Verification:
+
+- `npm run test:credit-transfers`: passed, 3 unit tests.
+- `npm run test:credit-transfers:db`: passed, 3 loopback integration tests including cross-customer dual confirmation.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- Migration `0021_cool_vampiro.sql` was applied to the loopback database only.
+- No production database operation or email delivery was performed.
+
+Next action: implement pending-transfer expiry processing and confirm/revoke behavior, with no credit mutation for expired or revoked requests.
+
+## Credit-transfer expiry and revoke (Stage 3 complete)
+
+Confirmed decisions:
+
+- Only the staff member who initiated a pending cross-customer transfer may revoke it.
+- Revocation requires a non-empty reason.
+- Expired and revoked pending transfers never create credit-ledger entries.
+- A scheduled/worker-style expiry operation marks every overdue `PENDING` transfer `EXPIRED`.
+
+Implementation:
+
+- Added pure overdue-transfer lifecycle logic in `src/lib/payments/credit-transfer-lifecycle.ts`.
+- Added initiating-staff revoke and bulk expiry operations to `src/lib/payments/credit-transfer.ts`.
+- Both operations revalidate authorization, lock transfer rows, and write audit records.
+
+Verification:
+
+- `npm run test:credit-transfer-lifecycle`: passed, 1 unit test.
+- `npm run test:credit-transfers`: passed, 3 approval unit tests.
+- `npm run test:credit-transfers:db`: passed, 5 loopback integration tests covering instant, cross-customer, confirmation, revoke, and expiry behavior.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run db:generate`: passed with no schema changes.
+- No production database operation or email delivery was performed.
+
+Stage 3 status:
+
+- Customer/account lifecycle business logic is implemented.
+- Meter assignment and reading rules are implemented.
+- Tariff activation, billing, payment allocation, reversal, standing credit, and credit transfer rules are implemented.
+- Backend Route Handlers and frontend/customer/PWA work remain separate stages and require further approval as each slice is requested.
+
+Next action: obtain approval to begin Stage 4 customer directory UI or keep Stage 3 complete and stop before backend Route Handlers are added.
+
+## Stage 4 read-only customer directory (complete)
+
+User direction:
+
+- Approved the customer directory UI after Stage 3 customer, meter, billing, and payment business logic was completed.
+
+Implementation:
+
+- Added `/dashboard/accounts/customers` as a read-only customer search and list page.
+- Added `/dashboard/accounts/customers/[customerId]` as a read-only customer detail page.
+- Added a `Customers` navigation entry for staff with `customers.read`.
+- Updated both dashboard shell call sites to receive and enforce the navigation permission.
+- Reused the existing `customers.read` authorization boundary and direct database server-page patterns.
+- Added search by customer number, name, email, or phone for up to 100 matching records.
+- No customer create, update, account, reading, billing, payment, or PWA action was added.
+
+Files changed:
+
+- `src/app/dashboard/layout.tsx`
+- `src/app/change-password/page.tsx`
+- `src/components/dashboard/dashboard-shell.tsx`
+- `src/app/dashboard/accounts/customers/page.tsx`
+- `src/app/dashboard/accounts/customers/[customerId]/page.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run db:generate`: passed with no schema changes.
+- `git diff --check`: passed.
+- Live Next.js server route check returned HTTP 307 from `/dashboard/accounts/customers` to `/sign-in` without a session.
+- A production build was not run because the local Next.js development server was active and shares `.next` output.
+- No database migration or production database operation was performed.
+
+Next action: choose the next approved slice, such as customer meter-account UI, reading UI, billing UI, or payment UI. Do not begin any unapproved module or PWA work.
+
+## Meter master management (Stage 2 backend and Stage 4 UI complete)
+
+User direction:
+
+- The user requested meter management before customer write UI.
+- Selected scope: meter master create/update UI with read and write permissions.
+
+Confirmed decisions:
+
+- Meter master fields are serial number, status, and notes.
+- Status values are `ACTIVE` and `DEFECTIVE`.
+- Meter serial numbers are unique and serial number updates are allowed.
+- No meter deletion action is exposed.
+- `meters.read` is granted to all seeded staff roles.
+- `meters.manage` is granted only to `admin` and `superadmin`.
+
+Implementation:
+
+- Added `meters.read` and `meters.manage` constants and seed role grants.
+- Added `GET /api/meters`, `POST /api/meters`, `GET /api/meters/{meterId}`, and `PATCH /api/meters/{meterId}`.
+- Added meter input validation and transactional create/update management.
+- Added `/dashboard/meters`, `/dashboard/meters/new`, and `/dashboard/meters/{meterId}` pages.
+- Added dashboard navigation for staff with `meters.read`.
+- Added create/edit controls hidden and enforced through `meters.manage`.
+- Fixed the development seed tariff lookup to avoid duplicate active-tariff insertion after the timestamp migration.
+
+Verification:
+
+- `npm run test:meters`: passed, 2 unit tests.
+- `npm run test:meters:db`: passed, 1 loopback integration test.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run db:seed`: passed after correcting the active-tariff lookup.
+- Live loopback SQL verification confirmed `meters.read` grants for admin, superadmin, billing officer, and meter reader; `meters.manage` grants for admin and superadmin.
+- Live unauthenticated `GET /api/meters`: HTTP 401 `UNAUTHENTICATED`.
+- `npm run db:generate`: passed with no schema changes.
+- `git diff --check`: passed.
+- No production database operation or email delivery was performed.
+- A production build was not run because the local Next.js development server was active and shares `.next`.
+
+Next action: continue to the approved meter assignment or customer-account UI slice. Do not add reading, billing, payment, or PWA functionality in the same task.
+
+## Customer create/edit UI (complete)
+
+Approved scope:
+
+- Add customer create UI.
+- Add customer edit UI on the existing customer detail page.
+- Use existing `POST /api/customers` and `PATCH /api/customers/{customerId}` endpoints.
+- Server remains authoritative for customer number and initial status.
+- No meter-account, invitation, reading, billing, or payment UI was added.
+
+Implementation:
+
+- Added `/dashboard/accounts/customers/new`.
+- Added `CustomerCreateForm`.
+- Added `CustomerEditControl` to customer detail pages.
+- Added Add customer link to the customer list for staff with `customers.manage`.
+- Added superadmin grant for `customers.manage` in the development seed.
+- Email restrictions, duplicate-email handling, active invitation/link restrictions, CSRF, and server authorization remain in the existing APIs.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run test:customers`: passed, 5 unit tests.
+- `npm run db:seed`: passed against loopback.
+- `npm run db:generate`: passed with no schema changes.
+- Live unauthenticated `GET /api/customers`: HTTP 401 `UNAUTHENTICATED`.
+- Live unauthenticated add-customer page: HTTP 307 to `/sign-in`.
+- Live unauthenticated `POST /api/customers` without CSRF: HTTP 403 `CSRF_FAILED`.
+- `git diff --check`: passed.
+- No production database operation or email delivery was performed.
+
+Next action: continue with customer meter-account management or portal-access UI, requiring separate scope approval. Do not begin readings, billing, payments, or PWA work in the same task.
+
+## Native-app bottom navigation (complete)
+
+User direction:
+
+- Prepare the responsive UI for future PWA/native-app behavior.
+- Use a beautiful Material-style bottom navigation on mobile with exactly four items.
+- Keep the existing desktop drawer navigation.
+
+Confirmed role mappings:
+
+- Admin and superadmin: Dashboard, Invoices, Billings, Customers.
+- Officer/staff: Meter readings, Customers, Meters, Dashboard.
+- Customer: Dashboard, Billings, Usage, Profile/change-password.
+
+Implementation:
+
+- Added role-aware bottom navigation to `DashboardShell`.
+- Added active-route pill styling, Material-style icons, safe-area bottom padding, and fixed mobile placement.
+- Hidden bottom navigation at `lg` and above to preserve desktop behavior.
+- Added responsive bottom content padding so mobile pages do not sit behind the bar.
+- Added authenticated dashboard “Coming soon” pages for Invoices, Billings, Meter readings, and Usage.
+- Profile maps to the already-approved `/change-password` route.
+
+Files affected:
+
+- `src/components/dashboard/dashboard-shell.tsx`
+- `src/app/dashboard/layout.tsx`
+- `src/app/change-password/page.tsx`
+- `src/components/dashboard/coming-soon.tsx`
+- `src/app/dashboard/invoices/page.tsx`
+- `src/app/dashboard/billings/page.tsx`
+- `src/app/dashboard/meter-readings/page.tsx`
+- `src/app/dashboard/usage/page.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed.
+- No database, migration, production, PWA manifest, service worker, or offline behavior was added.
+- Production build was not run because the local Next.js development server was active and shares `.next`.
+
+Next action: continue customer meter/account management or customer write UI, now using the native-style bottom navigation.
+
+## Customer meter-account UI (complete)
+
+Approved scope:
+
+- Create, list, and view customer meter/service accounts.
+- Optional initial active meter assignment during account creation.
+- No account lifecycle actions or meter assignment/removal editing in this slice.
+
+Implementation:
+
+- Added `GET /api/customer-meter-accounts?customerId=...`.
+- Added `GET /api/customer-meter-accounts/{accountId}`.
+- Added transactional `POST /api/customer-meter-accounts`.
+- Account creation validates active customer, active service variant, optional zone, and optional available active meter.
+- Initial meter assignment uses the existing `0.000` opening-reading rule and commits with account creation.
+- Added account list and Add service account link to the customer detail page.
+- Added `/dashboard/accounts/customers/{customerId}/meter-accounts/new`.
+- Added `/dashboard/accounts/customers/{customerId}/meter-accounts/{accountId}` detail page.
+- Added API contract documentation in `docs/api/customer-meter-accounts.md`.
+
+Verification:
+
+- `npm run test:customer-meter-accounts`: passed, 4 unit tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run db:generate`: passed with no schema changes.
+- Live unauthenticated account list probe returned `400 VALIDATION_ERROR` when `customerId` was omitted; the customer page returned HTTP 307 to sign-in.
+- `git diff --check`: passed.
+- No database migration or production database operation was performed.
+
+Next action: add account lifecycle actions or meter-assignment editing, requiring separate scope approval. Do not add reading, billing, payment, or PWA work in the same task.
+
+## Next.js customer-page instant-navigation warnings (complete)
+
+Issue:
+
+- The Next.js 16 development server reported uncached-data/instant-navigation warnings on the new-customer and customer meter-account detail pages. These are request-time authenticated pages that query the database; the responses themselves were successful.
+
+Implementation:
+
+- Added `export const instant = false` to the affected pages, matching the existing convention for authenticated dashboard pages with request-time data.
+- Applied the same route setting to the sibling add-service-account page, which also reads the session and database before rendering.
+- This opts these routes out of instant-navigation validation; it does not cache or change authorization/data behavior.
+
+Files affected:
+
+- `src/app/dashboard/accounts/customers/new/page.tsx`
+- `src/app/dashboard/accounts/customers/[customerId]/meter-accounts/[accountId]/page.tsx`
+- `src/app/dashboard/accounts/customers/[customerId]/meter-accounts/new/page.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `git diff --check`: passed; Git printed line-ending notices for unrelated modified files.
+- The Next.js development server was not restarted, so the warning disappearing from its runtime log has not been directly verified. A production build was not run because the development server shares `.next`.
+
+Next action: refresh or navigate to the three customer routes in the running development server and confirm the instant-navigation warning no longer appears. Then continue only with a separately approved task.

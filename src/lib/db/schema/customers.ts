@@ -1,5 +1,19 @@
 import { sql } from "drizzle-orm";
-import { check, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import {
+  check,
+  pgTable,
+  pgSequence,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
+
+export const customerNumberSequence = pgSequence(
+  "customers_customer_number_seq",
+  { startWith: 1, increment: 1, minValue: 1 },
+);
 
 export const customers = pgTable(
   "customers",
@@ -20,5 +34,7 @@ export const customers = pgTable(
   (table) => [
     check("customers_customer_type_check", sql`${table.customerType} in ('individual', 'business')`),
     check("customers_status_check", sql`${table.status} in ('active', 'inactive')`),
+    uniqueIndex("customers_email_lower_unique")
+      .on(sql`lower(${table.email})`),
   ],
 );

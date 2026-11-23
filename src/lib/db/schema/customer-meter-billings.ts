@@ -1,9 +1,14 @@
 import { sql } from "drizzle-orm";
-import { check, date, numeric, pgTable, text, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
+import { check, date, numeric, pgTable, pgSequence, text, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
 import { customerMeterAccounts } from "./customer-meter-accounts";
 import { meterReadings } from "./meter-readings";
 import { serviceTariffs } from "./service-tariffs";
 import { users } from "./users";
+
+export const customerMeterInvoiceNumberSequence = pgSequence(
+  "customer_meter_billings_invoice_number_seq",
+  { startWith: 1, increment: 1, minValue: 1 },
+);
 
 export const customerMeterBillings = pgTable(
   "customer_meter_billings",

@@ -142,6 +142,8 @@ The authenticated issuer's session and user are revalidated in the transaction. 
 
 The dashboard only renders the invite-user and manage-invitations navigation options for staff users with the `admin` or `superadmin` role. Hiding navigation is a usability measure, not an authorization boundary: the invitation pages and API handlers independently enforce authorization.
 
+The protected `/dashboard/accounts/invite` page supports both staff invitations and customer invitations. Customer invitations are selected from existing customer records that do not have an active portal-user link; the recipient name and email are resolved by the API from the selected customer ID. Pending customer invitations can be reissued from the invitation form or the invitation-management page. The current invitation UI is available to administrators and superadministrators; the API continues to enforce its broader permission policy independently.
+
 After the transaction commits, the invitation Route Handler makes one immediate attempt to send invitation emails through the existing outbox. The result is returned as `emailSent`; `emailQueued` remains true because the row stays available for worker retries. If SMTP is disabled or unavailable, issuance still succeeds and leaves the invitation email queued or retried through the outbox. The separate outbox worker remains available for scheduled or manual retry.
 
 The customer target is stored on `invitations.customer_id` so acceptance can create `customer_user_access` atomically. Partial unique indexes allow only one pending invitation per email and one per customer, and one active user link per customer. A revoked access link remains in history while allowing a later link.
