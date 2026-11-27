@@ -8,10 +8,83 @@ import {
   SESSION_COOKIE_NAME,
   setSessionCookie,
 } from "@/lib/auth/session-token";
-import { removeMeterAssignment } from "@/lib/meter-assignments/management";
+import {
+  removeMeterAssignment,
+  updateMeterAssignmentLocation,
+} from "@/lib/meter-assignments/management";
+import { parseUpdateMeterAssignmentLocationInput } from "@/lib/meter-assignments/input";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ assignmentId: string }> },
+): Promise<NextResponse> {
+  try {
+    if (!hasValidCsrfHeaders(request, getApplicationOrigin())) {
+      return errorResponse(403, "CSRF_FAILED", "The request could not be verified.");
+    }
+    if (
+      request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !==
+      "application/json"
+    ) {
+      return errorResponse(400, "VALIDATION_ERROR", "The assignment request is invalid.");
+    }
+
+    const { assignmentId } = await context.params;
+    if (!UUID_PATTERN.test(assignmentId)) {
+      return errorResponse(400, "VALIDATION_ERROR", "The assignment request is invalid.");
+    }
+
+    const body = await readJsonBody(request);
+    const input = body.ok
+      ? parseUpdateMeterAssignmentLocationInput(body.value)
+      : null;
+    if (!input) {
+      return errorResponse(400, "VALIDATION_ERROR", "The assignment request is invalid.");
+    }
+
+    const sessionToken = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+    if (!isValidSessionToken(sessionToken)) {
+      return errorResponse(401, "UNAUTHENTICATED", "Sign in to continue.");
+    }
+
+    const result = await updateMeterAssignmentLocation(
+      sessionToken,
+      assignmentId,
+      input.locationDescription,
+    );
+    if (result.kind === "unauthenticated") {
+      return errorResponse(401, "UNAUTHENTICATED", "Sign in to continue.");
+    }
+    if (result.kind === "forbidden") {
+      return errorResponse(403, "FORBIDDEN", "You are not allowed to manage meter assignments.");
+    }
+    if (
+      result.kind === "assignment-not-found" ||
+      result.kind === "already-removed"
+    ) {
+      return errorResponse(404, "NOT_FOUND", "The active meter assignment was not found.");
+    }
+
+    const response = successResponse({
+      assignment: {
+        id: result.assignmentId,
+        locationDescription: result.locationDescription,
+        updatedAt: result.updatedAt.toISOString(),
+      },
+    });
+    setSessionCookie(response, sessionToken, result.sessionPolicy);
+    return response;
+  } catch (error) {
+    const errorType = error instanceof Error ? error.name : "UnknownError";
+    console.error(
+      `[meter-assignments.location-update] Internal operation failed (${errorType}).`,
+    );
+    return errorResponse(500, "INTERNAL_ERROR", "The meter assignment could not be updated.");
+  }
+}
 
 export async function DELETE(
   request: Request,

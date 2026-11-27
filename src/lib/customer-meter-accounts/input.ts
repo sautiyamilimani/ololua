@@ -2,11 +2,15 @@ export type CreateCustomerMeterAccountInput = {
   customerId: string;
   serviceVariantId: string;
   zoneId: string | null;
-  propertyAddress: string;
   locationDescription: string | null;
   notes: string | null;
   meterId?: string | null;
 };
+
+export type CreateCustomerMeterAccountRecordInput = Omit<
+  CreateCustomerMeterAccountInput,
+  "locationDescription" | "meterId"
+>;
 
 function isUuid(value: unknown): value is string {
   if (typeof value !== "string") {
@@ -45,7 +49,6 @@ export function parseCreateCustomerMeterAccountInput(
     "customerId",
     "serviceVariantId",
     "zoneId",
-    "propertyAddress",
     "locationDescription",
     "notes",
     "meterId",
@@ -69,14 +72,8 @@ export function parseCreateCustomerMeterAccountInput(
       record.zoneId === null ||
       record.zoneId === undefined ||
       isUuid(record.zoneId)
-    ) ||
-    typeof record.propertyAddress !== "string"
+    )
   ) {
-    return null;
-  }
-
-  const propertyAddress = record.propertyAddress.trim();
-  if (propertyAddress.length === 0 || propertyAddress.length > 500) {
     return null;
   }
 
@@ -93,16 +90,20 @@ export function parseCreateCustomerMeterAccountInput(
     return null;
   }
 
+  const meterId =
+    record.meterId === undefined || record.meterId === null
+      ? null
+      : record.meterId;
+  if (locationDescription !== null && meterId === null) {
+    return null;
+  }
+
   return {
     customerId: record.customerId,
     serviceVariantId: record.serviceVariantId,
     zoneId: record.zoneId === undefined ? null : record.zoneId,
-    propertyAddress,
     locationDescription,
     notes,
-    meterId:
-      record.meterId === undefined || record.meterId === null
-        ? null
-        : record.meterId,
+    meterId,
   };
 }

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 type MeterStatus = "ACTIVE" | "DEFECTIVE";
 
@@ -18,16 +19,13 @@ export function MeterEditControl({
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const notifications = useNotifications();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (submitting) return;
     const form = new FormData(event.currentTarget);
     setSubmitting(true);
-    setMessage(null);
-    setError(false);
     try {
       const response = await fetch(`/api/meters/${meterId}`, {
         method: "PATCH",
@@ -45,15 +43,13 @@ export function MeterEditControl({
         }),
       });
       if (!response.ok) {
-        setError(true);
-        setMessage("The meter could not be updated.");
+        notifications.error("The meter could not be updated.");
         return;
       }
-      setMessage("Meter updated successfully.");
+      notifications.success("Meter updated successfully.");
       router.refresh();
     } catch {
-      setError(true);
-      setMessage("Could not reach the service. Try again.");
+      notifications.error("Could not reach the service. Try again.", true);
     } finally {
       setSubmitting(false);
     }
@@ -62,18 +58,6 @@ export function MeterEditControl({
   return (
     <form className="mt-8 border-t border-slate-200 pt-6" onSubmit={(event) => void handleSubmit(event)}>
       <h2 className="text-base font-semibold text-slate-950">Edit meter</h2>
-      {message && (
-        <p
-          aria-live="polite"
-          className={`mt-4 rounded-lg border px-3 py-2.5 text-sm ${
-            error
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-teal-200 bg-teal-50 text-teal-800"
-          }`}
-        >
-          {message}
-        </p>
-      )}
       <div className="mt-4 space-y-4">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="meterSerialNumber">

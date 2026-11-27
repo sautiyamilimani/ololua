@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   customerMeterAccounts,
@@ -7,7 +7,8 @@ import {
   serviceVariants,
   zones,
 } from "@/lib/db/schema";
-import type { CreateCustomerMeterAccountInput } from "./input";
+import type { CreateCustomerMeterAccountRecordInput } from "./input";
+import { getServiceVariantCategory } from "./service-variant-category";
 
 export type CreateCustomerMeterAccountResult =
   | {
@@ -19,10 +20,11 @@ export type CreateCustomerMeterAccountResult =
   | { kind: "customer-inactive" }
   | { kind: "service-variant-not-found" }
   | { kind: "service-variant-inactive" }
+  | { kind: "domestic-account-exists" }
   | { kind: "zone-not-found" };
 
 export async function createCustomerMeterAccount(
-  input: CreateCustomerMeterAccountInput,
+  input: CreateCustomerMeterAccountRecordInput,
 ): Promise<CreateCustomerMeterAccountResult> {
   const now = new Date();
 
@@ -45,7 +47,10 @@ export async function createCustomerMeterAccount(
     }
 
     const [variant] = await transaction
-      .select({ status: serviceVariants.status })
+      .select({
+        status: serviceVariants.status,
+        variantCode: serviceVariants.variantCode,
+      })
       .from(serviceVariants)
       .where(eq(serviceVariants.id, input.serviceVariantId))
       .limit(1)
@@ -56,6 +61,28 @@ export async function createCustomerMeterAccount(
     }
     if (variant.status !== "ACTIVE") {
       return { kind: "service-variant-inactive" } as const;
+    }
+
+    if (getServiceVariantCategory(variant.variantCode) === "domestic") {
+      const [existingDomesticAccount] = await transaction
+        .select({ id: customerMeterAccounts.id })
+        .from(customerMeterAccounts)
+        .innerJoin(
+          serviceVariants,
+          eq(customerMeterAccounts.serviceVariantId, serviceVariants.id),
+        )
+        .where(
+          and(
+            eq(customerMeterAccounts.customerId, input.customerId),
+            ne(customerMeterAccounts.status, "CLOSED"),
+            sql`upper(${serviceVariants.variantCode}) like '%DOMESTIC%'`,
+          ),
+        )
+        .limit(1);
+
+      if (existingDomesticAccount) {
+        return { kind: "domestic-account-exists" } as const;
+      }
     }
 
     if (input.zoneId !== null) {
@@ -86,8 +113,6 @@ export async function createCustomerMeterAccount(
       customerId: input.customerId,
       serviceVariantId: input.serviceVariantId,
       zoneId: input.zoneId,
-      propertyAddress: input.propertyAddress.trim(),
-      locationDescription: input.locationDescription,
       notes: input.notes,
       status: "ACTIVE",
       createdAt: now,

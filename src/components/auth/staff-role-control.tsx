@@ -2,16 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 type StaffRoleOption = {
   roleKey: string;
   roleName: string;
 };
-
-type FormMessage =
-  | { kind: "success"; text: string }
-  | { kind: "error"; text: string }
-  | null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -93,27 +90,27 @@ export function StaffRoleControl({
   assignedRoleKeys: string[];
 }) {
   const router = useRouter();
+  const notifications = useNotifications();
   const [selectedRoleKeys, setSelectedRoleKeys] = useState(assignedRoleKeys);
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<FormMessage>(null);
+  const { confirm, dialog } = useConfirmationDialog();
   const hasChanges = !haveSameRoleKeys(selectedRoleKeys, assignedRoleKeys);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
 
-    if (
-      submitting ||
-      !hasChanges ||
-      selectedRoleKeys.length === 0 ||
-      !window.confirm(
-        `Update roles for ${fullName}? All of their active sessions will be revoked, and they will need to sign in again.`,
-      )
-    ) {
+    if (submitting || !hasChanges || selectedRoleKeys.length === 0) {
       return;
     }
+    const confirmed = await confirm({
+      title: "Update staff roles?",
+      description: `Update roles for ${fullName}? All active sessions will be revoked, and they will need to sign in again.`,
+      confirmLabel: "Update roles",
+      tone: "primary",
+    });
+    if (!confirmed) return;
 
     setSubmitting(true);
-    setMessage(null);
 
     try {
       const response = await fetch(`/api/admin/users/${userId}/roles`, {
@@ -133,18 +130,12 @@ export function StaffRoleControl({
       try {
         payload = await response.json();
       } catch {
-        setMessage({
-          kind: "error",
-          text: "We could not verify the response. Please try again.",
-        });
+        notifications.error("We could not verify the response. Please try again.");
         return;
       }
 
       if (!response.ok) {
-        setMessage({
-          kind: "error",
-          text: getErrorMessage(getErrorCode(payload)),
-        });
+        notifications.error(getErrorMessage(getErrorCode(payload)));
         return;
       }
 
@@ -153,24 +144,20 @@ export function StaffRoleControl({
         returnedRoleKeys === null ||
         !haveSameRoleKeys(returnedRoleKeys, selectedRoleKeys)
       ) {
-        setMessage({
-          kind: "error",
-          text: "We could not verify the response. Please try again.",
-        });
+        notifications.error("We could not verify the response. Please try again.");
         return;
       }
 
       setSelectedRoleKeys(returnedRoleKeys);
-      setMessage({
-        kind: "success",
-        text: "Roles updated. The user's active sessions were revoked; they must sign in again.",
-      });
+      notifications.success(
+        "Roles updated. The user's active sessions were revoked; they must sign in again.",
+      );
       router.refresh();
     } catch {
-      setMessage({
-        kind: "error",
-        text: "We could not reach the service. Check your connection and try again.",
-      });
+      notifications.error(
+        "We could not reach the service. Check your connection and try again.",
+        true,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -183,20 +170,6 @@ export function StaffRoleControl({
         Select at least one staff role. Saving role changes revokes the user&apos;s
         active sessions.
       </p>
-
-      {message && (
-        <p
-          aria-live="polite"
-          className={`mt-4 rounded-lg border px-3 py-2.5 text-sm ${
-            message.kind === "error"
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-teal-200 bg-teal-50 text-teal-800"
-          }`}
-          role={message.kind === "error" ? "alert" : "status"}
-        >
-          {message.text}
-        </p>
-      )}
 
       {roleOptions.length === 0 ? (
         <p className="mt-4 text-sm text-slate-600">
@@ -221,7 +194,6 @@ export function StaffRoleControl({
                         ? [...current, role.roleKey]
                         : current.filter((roleKey) => roleKey !== role.roleKey),
                     );
-                    setMessage(null);
                   }}
                   type="checkbox"
                 />
@@ -238,6 +210,7 @@ export function StaffRoleControl({
           </button>
         </form>
       )}
+      {dialog}
     </section>
   );
 }

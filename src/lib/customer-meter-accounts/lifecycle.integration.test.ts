@@ -2,7 +2,7 @@ import "dotenv/config";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { afterEach, test } from "node:test";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   auditLogs,
@@ -18,6 +18,7 @@ import {
 } from "@/lib/db/schema";
 import { getSessionPolicy } from "@/lib/auth/policy";
 import { createOpaqueToken, hashOpaqueToken } from "@/lib/auth/token";
+import { createCustomerMeterAccount } from "./management";
 import { transitionCustomerMeterAccount } from "./lifecycle";
 
 const fixtureUserIds = new Set<string>();
@@ -72,7 +73,7 @@ async function createStaffSession(): Promise<string> {
   return token;
 }
 
-async function createAccountFixture() {
+async function createAccountFixture(domestic = false) {
   const customerId = randomUUID();
   fixtureCustomerIds.add(customerId);
   await db.insert(customers).values({
@@ -85,11 +86,23 @@ async function createAccountFixture() {
     status: "active",
   });
 
-  const [variant] = await db
-    .select({ id: serviceVariants.id })
-    .from(serviceVariants)
-    .where(eq(serviceVariants.status, "ACTIVE"))
-    .limit(1);
+  const variants = domestic
+    ? await db
+        .select({ id: serviceVariants.id })
+        .from(serviceVariants)
+        .where(
+          and(
+            eq(serviceVariants.status, "ACTIVE"),
+            sql`upper(${serviceVariants.variantCode}) like '%DOMESTIC%'`,
+          ),
+        )
+        .limit(1)
+    : await db
+        .select({ id: serviceVariants.id })
+        .from(serviceVariants)
+        .where(eq(serviceVariants.status, "ACTIVE"))
+        .limit(1);
+  const [variant] = variants;
   assert.ok(variant, "The development database must contain an active service variant.");
 
   const accountId = randomUUID();
@@ -100,7 +113,6 @@ async function createAccountFixture() {
     customerId,
     serviceVariantId: variant.id,
     zoneId: null,
-    propertyAddress: "Lifecycle Test Plot",
     status: "ACTIVE",
   });
 
@@ -122,7 +134,7 @@ async function createAccountFixture() {
     assignedAt: new Date(),
   });
 
-  return accountId;
+  return { accountId, customerId };
 }
 
 afterEach(async () => {
@@ -160,7 +172,7 @@ afterEach(async () => {
 test("account lifecycle suspends, closes, reopens, and preserves active meter assignments", async () => {
   assertLocalDatabase();
   const token = await createStaffSession();
-  const accountId = await createAccountFixture();
+  const { accountId } = await createAccountFixture();
 
   const suspended = await transitionCustomerMeterAccount(
     token,
@@ -216,7 +228,7 @@ test("account lifecycle suspends, closes, reopens, and preserves active meter as
 test("invalid lifecycle transitions are rejected", async () => {
   assertLocalDatabase();
   const token = await createStaffSession();
-  const accountId = await createAccountFixture();
+  const { accountId } = await createAccountFixture();
 
   const invalid = await transitionCustomerMeterAccount(
     token,
@@ -224,4 +236,44 @@ test("invalid lifecycle transitions are rejected", async () => {
     "REACTIVATE",
   );
   assert.deepEqual(invalid, { kind: "invalid-transition" });
+});
+
+test("a closed Domestic Water account cannot reopen beside another current account", async () => {
+  assertLocalDatabase();
+  const token = await createStaffSession();
+  const { accountId, customerId } = await createAccountFixture(true);
+
+  const closed = await transitionCustomerMeterAccount(token, accountId, "CLOSE");
+  assert.equal(closed.kind, "success");
+  if (closed.kind !== "success") return;
+  assert.equal(closed.status, "CLOSED");
+
+  const [variant] = await db
+    .select({ id: serviceVariants.id })
+    .from(serviceVariants)
+    .where(
+      and(
+        eq(serviceVariants.status, "ACTIVE"),
+        sql`upper(${serviceVariants.variantCode}) like '%DOMESTIC%'`,
+      ),
+    )
+    .limit(1);
+  assert.ok(variant, "The development database must contain an active Domestic Water variant.");
+
+  const second = await createCustomerMeterAccount({
+    customerId,
+    serviceVariantId: variant.id,
+    zoneId: null,
+    notes: null,
+  });
+  assert.equal(second.kind, "success");
+  if (second.kind !== "success") return;
+  fixtureAccountIds.add(second.accountId);
+
+  const reopened = await transitionCustomerMeterAccount(
+    token,
+    accountId,
+    "REACTIVATE",
+  );
+  assert.deepEqual(reopened, { kind: "domestic-account-exists" });
 });

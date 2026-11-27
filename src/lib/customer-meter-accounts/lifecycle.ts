@@ -1,23 +1,21 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   auditLogs,
   customerMeterAccounts,
-  permissions,
-  rolePermissions,
-  sessions,
-  userRoles,
-  users,
-  roles,
+  customers,
+  serviceVariants,
 } from "@/lib/db/schema";
-import { CUSTOMER_MANAGE_PERMISSION } from "@/lib/auth/permissions";
-import { getSessionPolicy, type SessionPolicy } from "@/lib/auth/policy";
-import { hashOpaqueToken } from "@/lib/auth/token";
+import {
+  authorizeCustomerMeterAccountManager,
+  type AuthorizedCustomerMeterAccountManager,
+} from "./authorization";
 import {
   getCustomerMeterAccountStatusAfterTransition,
   type CustomerMeterAccountStatus,
   type CustomerMeterAccountTransition,
 } from "./lifecycle-state";
+import { getServiceVariantCategory } from "./service-variant-category";
 
 export type LifecycleResult =
   | {
@@ -26,106 +24,13 @@ export type LifecycleResult =
       previousStatus: CustomerMeterAccountStatus;
       status: CustomerMeterAccountStatus;
       updatedAt: Date;
-      sessionPolicy: SessionPolicy;
+      sessionPolicy: AuthorizedCustomerMeterAccountManager["policy"];
     }
   | { kind: "unauthenticated" }
   | { kind: "forbidden" }
   | { kind: "not-found" }
-  | { kind: "invalid-transition" };
-
-type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-async function authorizeLifecycleManager(
-  transaction: DatabaseTransaction,
-  sessionToken: string,
-  now: Date,
-) {
-  const [session] = await transaction
-    .select({
-      id: sessions.id,
-      userId: sessions.userId,
-      revokedAt: sessions.revokedAt,
-      idleExpiresAt: sessions.idleExpiresAt,
-      expiresAt: sessions.expiresAt,
-    })
-    .from(sessions)
-    .where(eq(sessions.tokenHash, hashOpaqueToken(sessionToken)))
-    .limit(1)
-    .for("update");
-
-  if (
-    !session ||
-    session.revokedAt !== null ||
-    session.idleExpiresAt <= now ||
-    session.expiresAt <= now
-  ) {
-    return { kind: "unauthenticated" as const };
-  }
-
-  const [actor] = await transaction
-    .select({
-      id: users.id,
-      accountType: users.accountType,
-      status: users.status,
-      emailVerifiedAt: users.emailVerifiedAt,
-    })
-    .from(users)
-    .where(eq(users.id, session.userId))
-    .limit(1)
-    .for("update");
-
-  if (
-    !actor ||
-    actor.accountType !== "staff" ||
-    actor.status !== "active" ||
-    actor.emailVerifiedAt === null
-  ) {
-    return { kind: "unauthenticated" as const };
-  }
-
-  const actorRoles = await transaction
-    .select({
-      roleKey: roles.roleKey,
-      permissionKey: permissions.permissionKey,
-    })
-    .from(userRoles)
-    .innerJoin(roles, eq(userRoles.roleId, roles.id))
-    .leftJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-    .leftJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
-    .where(eq(userRoles.userId, actor.id));
-
-  if (
-    !actorRoles.some(
-      (row) => row.permissionKey === CUSTOMER_MANAGE_PERMISSION,
-    )
-  ) {
-    return { kind: "forbidden" as const };
-  }
-
-  const roleKeys = [...new Set(actorRoles.map((row) => row.roleKey))];
-  const sessionPolicy = getSessionPolicy("staff", roleKeys);
-  const nextExpiry = new Date(now.getTime() + sessionPolicy.idleTimeoutMs);
-
-  await transaction
-    .update(sessions)
-    .set({
-      lastActivityAt: now,
-      idleExpiresAt: nextExpiry,
-      expiresAt: nextExpiry,
-    })
-    .where(
-      and(
-        eq(sessions.id, session.id),
-        isNull(sessions.revokedAt),
-      ),
-    );
-
-  return {
-    kind: "authorized" as const,
-    actorId: actor.id,
-    policy: sessionPolicy,
-  };
-}
+  | { kind: "invalid-transition" }
+  | { kind: "domestic-account-exists" };
 
 export async function transitionCustomerMeterAccount(
   sessionToken: string,
@@ -136,7 +41,7 @@ export async function transitionCustomerMeterAccount(
   const now = new Date();
 
   return db.transaction(async (transaction) => {
-    const authorization = await authorizeLifecycleManager(
+    const authorization = await authorizeCustomerMeterAccountManager(
       transaction,
       sessionToken,
       now,
@@ -145,9 +50,29 @@ export async function transitionCustomerMeterAccount(
       return authorization;
     }
 
+    const [accountReference] = await transaction
+      .select({
+        customerId: customerMeterAccounts.customerId,
+      })
+      .from(customerMeterAccounts)
+      .where(eq(customerMeterAccounts.id, accountId))
+      .limit(1);
+
+    if (!accountReference) {
+      return { kind: "not-found" as const };
+    }
+
+    await transaction
+      .select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.id, accountReference.customerId))
+      .for("update");
+
     const [account] = await transaction
       .select({
         id: customerMeterAccounts.id,
+        customerId: customerMeterAccounts.customerId,
+        serviceVariantId: customerMeterAccounts.serviceVariantId,
         status: customerMeterAccounts.status,
       })
       .from(customerMeterAccounts)
@@ -155,7 +80,7 @@ export async function transitionCustomerMeterAccount(
       .limit(1)
       .for("update");
 
-    if (!account) {
+    if (!account || account.customerId !== accountReference.customerId) {
       return { kind: "not-found" as const };
     }
 
@@ -166,6 +91,41 @@ export async function transitionCustomerMeterAccount(
     );
     if (nextStatus === null) {
       return { kind: "invalid-transition" as const };
+    }
+
+    const [variant] = await transaction
+      .select({ variantCode: serviceVariants.variantCode })
+      .from(serviceVariants)
+      .where(eq(serviceVariants.id, account.serviceVariantId))
+      .limit(1);
+    if (!variant) {
+      throw new Error("Customer meter account references a missing service variant.");
+    }
+
+    if (
+      nextStatus !== "CLOSED" &&
+      getServiceVariantCategory(variant.variantCode) === "domestic"
+    ) {
+      const [existingDomesticAccount] = await transaction
+        .select({ id: customerMeterAccounts.id })
+        .from(customerMeterAccounts)
+        .innerJoin(
+          serviceVariants,
+          eq(customerMeterAccounts.serviceVariantId, serviceVariants.id),
+        )
+        .where(
+          and(
+            eq(customerMeterAccounts.customerId, account.customerId),
+            ne(customerMeterAccounts.id, account.id),
+            ne(customerMeterAccounts.status, "CLOSED"),
+            sql`upper(${serviceVariants.variantCode}) like '%DOMESTIC%'`,
+          ),
+        )
+        .limit(1);
+
+      if (existingDomesticAccount) {
+        return { kind: "domestic-account-exists" as const };
+      }
     }
 
     await transaction

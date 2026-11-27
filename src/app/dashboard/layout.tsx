@@ -7,10 +7,7 @@ import {
   isValidSessionToken,
   SESSION_COOKIE_NAME,
 } from "@/lib/auth/session-token";
-import {
-  CUSTOMER_READ_PERMISSION,
-  userHasPermission,
-} from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { METER_READ_PERMISSION } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { isNull, and, eq } from "drizzle-orm";
@@ -34,9 +31,6 @@ export default async function DashboardLayout({
   if (!session) {
     redirect("/sign-in");
   }
-  const canReadCustomers =
-    session.user.accountType === "staff" &&
-    await userHasPermission(session.user.id, CUSTOMER_READ_PERMISSION);
   const canReadMeters =
     session.user.accountType === "staff" &&
     await userHasPermission(session.user.id, METER_READ_PERMISSION);
@@ -65,11 +59,11 @@ export default async function DashboardLayout({
   return (
     <DashboardShell
       canManageStaffAccounts={session.canManageStaffAccounts}
-      canReadCustomers={canReadCustomers}
       canReadMeters={canReadMeters}
       hasPersonalCustomerAccount={personalCustomerAccess !== undefined}
       bottomNavVariant={bottomNavVariant}
       fullName={session.user.fullName}
+      email={session.user.email}
     >
       {children}
     </DashboardShell>

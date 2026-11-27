@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { asc, eq, and, isNull, sql } from "drizzle-orm";
+import { asc, eq, and, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   auditLogs,
@@ -32,6 +32,7 @@ import { getApplicationOrigin, hasValidCsrfHeaders } from "@/lib/auth/csrf";
 import { readJsonBody } from "@/lib/auth/request";
 import { errorResponse, successResponse } from "@/lib/auth/response";
 import { parseCreateCustomerMeterAccountInput } from "@/lib/customer-meter-accounts/input";
+import { getServiceVariantCategory } from "@/lib/customer-meter-accounts/service-variant-category";
 import { getSessionPolicy } from "@/lib/auth/policy";
 import { hashOpaqueToken } from "@/lib/auth/token";
 import { randomUUID } from "node:crypto";
@@ -66,8 +67,6 @@ export async function GET(request: Request): Promise<NextResponse> {
       customerId: customerMeterAccounts.customerId,
       serviceVariantId: customerMeterAccounts.serviceVariantId,
       zoneId: customerMeterAccounts.zoneId,
-      propertyAddress: customerMeterAccounts.propertyAddress,
-      locationDescription: customerMeterAccounts.locationDescription,
       status: customerMeterAccounts.status,
       createdAt: customerMeterAccounts.createdAt,
       updatedAt: customerMeterAccounts.updatedAt,
@@ -169,13 +168,38 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
 
       const [variant] = await transaction
-        .select({ id: serviceVariants.id, status: serviceVariants.status })
+        .select({
+          id: serviceVariants.id,
+          status: serviceVariants.status,
+          variantCode: serviceVariants.variantCode,
+        })
         .from(serviceVariants)
         .where(eq(serviceVariants.id, input.serviceVariantId))
         .limit(1)
         .for("update");
       if (!variant) return { kind: "variant-not-found" as const };
       if (variant.status !== "ACTIVE") return { kind: "variant-inactive" as const };
+
+      if (getServiceVariantCategory(variant.variantCode) === "domestic") {
+        const [existingDomesticAccount] = await transaction
+          .select({ id: customerMeterAccounts.id })
+          .from(customerMeterAccounts)
+          .innerJoin(
+            serviceVariants,
+            eq(customerMeterAccounts.serviceVariantId, serviceVariants.id),
+          )
+          .where(
+            and(
+              eq(customerMeterAccounts.customerId, customer.id),
+              ne(customerMeterAccounts.status, "CLOSED"),
+              sql`upper(${serviceVariants.variantCode}) like '%DOMESTIC%'`,
+            ),
+          )
+          .limit(1);
+        if (existingDomesticAccount) {
+          return { kind: "domestic-account-exists" as const };
+        }
+      }
 
       if (input.zoneId) {
         const [zone] = await transaction
@@ -222,8 +246,6 @@ export async function POST(request: Request): Promise<NextResponse> {
         customerId: customer.id,
         serviceVariantId: variant.id,
         zoneId: input.zoneId,
-        propertyAddress: input.propertyAddress,
-        locationDescription: input.locationDescription,
         notes: input.notes,
         status: "ACTIVE",
         createdAt: now,
@@ -235,6 +257,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           meterId: meter.id,
           customerMeterAccountId: accountId,
           initialReading: "0.000",
+          locationDescription: input.locationDescription,
           assignedAt: now,
           assignedBy: actor.id,
           createdAt: now,
@@ -253,6 +276,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           customerId: customer.id,
           serviceVariantId: variant.id,
           meterId: meter?.id ?? null,
+          initialMeterLocationDescription: meter
+            ? input.locationDescription
+            : null,
         },
         createdAt: now,
       });
@@ -287,6 +313,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
     if (result.kind === "customer-inactive") {
       return errorResponse(409, "CUSTOMER_METER_ACCOUNT_CONFLICT", "Only active customers can receive new accounts.");
+    }
+    if (result.kind === "domestic-account-exists") {
+      return errorResponse(
+        409,
+        "DOMESTIC_ACCOUNT_EXISTS",
+        "This customer already has a Domestic Water account. Assign additional meters to that account instead.",
+      );
     }
     if (
       result.kind === "variant-not-found" ||

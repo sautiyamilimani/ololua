@@ -12,9 +12,12 @@ export const metadata: Metadata = {
 export default function SignInPage() {
   return (
     <AuthPageShell
-      description="Sign in with the email address and password associated with your account."
-      eyebrow="Welcome back"
-      title="Sign in to your account"
+      cardDescription="Sign in to access your water services management portal."
+      cardTitle="Welcome Back"
+      description="The Ololua portal brings your account, bills and meter information together in one place."
+      eyebrow="Water services portal"
+      title="Clean water, clearly managed."
+      variant="dark"
     >
       <SignInForm />
     </AuthPageShell>

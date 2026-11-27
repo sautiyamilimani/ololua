@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 type Option = { id: string; label: string };
 
@@ -24,16 +25,15 @@ export function CustomerMeterAccountForm({
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [meterId, setMeterId] = useState("");
+  const notifications = useNotifications();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (submitting) return;
     const form = new FormData(event.currentTarget);
+    const selectedMeterId = String(form.get("meterId") ?? "") || null;
     setSubmitting(true);
-    setMessage(null);
-    setError(false);
 
     try {
       const response = await fetch("/api/customer-meter-accounts", {
@@ -49,10 +49,11 @@ export function CustomerMeterAccountForm({
           customerId,
           serviceVariantId: String(form.get("serviceVariantId") ?? ""),
           zoneId: String(form.get("zoneId") ?? "") || null,
-          propertyAddress: String(form.get("propertyAddress") ?? ""),
-          locationDescription: String(form.get("locationDescription") ?? "").trim() || null,
+          locationDescription: selectedMeterId
+            ? String(form.get("locationDescription") ?? "").trim() || null
+            : null,
           notes: String(form.get("notes") ?? "").trim() || null,
-          meterId: String(form.get("meterId") ?? "") || null,
+          meterId: selectedMeterId,
         }),
       });
       let payload: unknown = null;
@@ -66,16 +67,17 @@ export function CustomerMeterAccountForm({
             text = "You do not have permission to manage customer accounts.";
           } else if (payload.error.code === "CUSTOMER_METER_ACCOUNT_CONFLICT") {
             text = "The customer or selected meter is not eligible.";
+          } else if (payload.error.code === "DOMESTIC_ACCOUNT_EXISTS") {
+            text = "This customer already has a Domestic Water account. Assign additional meters to that account instead.";
           } else if (payload.error.code === "CSRF_FAILED") {
             text = "For your security, reload this page and try again.";
           }
         }
-        setError(true);
-        setMessage(text);
+        notifications.error(text);
         return;
       }
 
-      setMessage("Customer meter account created successfully.");
+      notifications.success("Customer meter account created successfully.");
       if (navigateToAccountDetails) {
         if (
           isRecord(payload) &&
@@ -92,8 +94,10 @@ export function CustomerMeterAccountForm({
       }
       router.refresh();
     } catch {
-      setError(true);
-      setMessage("Could not reach the service. Check your connection and try again.");
+      notifications.error(
+        "Could not reach the service. Check your connection and try again.",
+        true,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -104,27 +108,14 @@ export function CustomerMeterAccountForm({
 
   return (
     <form className="space-y-5" onSubmit={(event) => void handleSubmit(event)}>
-      {message && (
-        <p
-          aria-live="polite"
-          className={`rounded-lg border px-3 py-2.5 text-sm ${
-            error
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-teal-200 bg-teal-50 text-teal-800"
-          }`}
-          role={error ? "alert" : "status"}
-        >
-          {message}
-        </p>
-      )}
       <div>
         <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="serviceVariantId">
           Service variant
         </label>
         <select className={fieldClass} id="serviceVariantId" name="serviceVariantId" required>
           <option value="">Select a service variant</option>
-          {variants.map((variant) => (
-            <option key={variant.id} value={variant.id}>{variant.label}</option>
+            {variants.map((variant) => (
+            <option key={`account-variant-${variant.id}`} value={variant.id}>{variant.label}</option>
           ))}
         </select>
       </div>
@@ -135,33 +126,43 @@ export function CustomerMeterAccountForm({
         <select className={fieldClass} id="zoneId" name="zoneId">
           <option value="">No zone</option>
           {zones.map((zone) => (
-            <option key={zone.id} value={zone.id}>{zone.label}</option>
+            <option key={`account-zone-${zone.id}`} value={zone.id}>{zone.label}</option>
           ))}
         </select>
-      </div>
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="propertyAddress">
-          Property address
-        </label>
-        <input className={fieldClass} id="propertyAddress" maxLength={500} name="propertyAddress" required />
-      </div>
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="locationDescription">
-          Location description
-        </label>
-        <input className={fieldClass} id="locationDescription" maxLength={500} name="locationDescription" />
       </div>
       <div>
         <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="meterId">
           Initial meter
         </label>
-        <select className={fieldClass} id="meterId" name="meterId">
+        <select
+          className={fieldClass}
+          id="meterId"
+          name="meterId"
+          onChange={(event) => setMeterId(event.currentTarget.value)}
+          value={meterId}
+        >
           <option value="">No meter yet</option>
           {meters.map((meter) => (
-            <option key={meter.id} value={meter.id}>{meter.label}</option>
+            <option key={`account-meter-${meter.id}`} value={meter.id}>{meter.label}</option>
           ))}
         </select>
       </div>
+      {meterId && (
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="locationDescription">
+            Meter location
+          </label>
+          <input
+            className={fieldClass}
+            id="locationDescription"
+            maxLength={500}
+            name="locationDescription"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            This location is saved on the meter assignment.
+          </p>
+        </div>
+      )}
       <div>
         <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="accountNotes">
           Notes

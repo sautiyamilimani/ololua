@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { MeterEditControl } from "@/components/meters/meter-edit-control";
 import { MeterAssignmentControl } from "@/components/meters/meter-assignment-control";
+import { Breadcrumbs } from "@/components/navigation/breadcrumbs";
 import { db } from "@/lib/db";
 import {
   customerMeterAccounts,
@@ -90,6 +91,7 @@ export default async function MeterDetailsPage({
       accountStatus: customerMeterAccounts.status,
       customerId: customers.id,
       customerName: customers.fullName,
+      locationDescription: meterAssignments.locationDescription,
       initialReading: meterAssignments.initialReading,
       assignedAt: meterAssignments.assignedAt,
       assignedByName: users.fullName,
@@ -121,6 +123,7 @@ export default async function MeterDetailsPage({
         accountNumber: activeAssignmentRow.accountNumber,
         customerId: activeAssignmentRow.customerId,
         customerName: activeAssignmentRow.customerName,
+        locationDescription: activeAssignmentRow.locationDescription,
       }
     : null;
 
@@ -131,7 +134,6 @@ export default async function MeterDetailsPage({
             id: customerMeterAccounts.id,
             accountNumber: customerMeterAccounts.accountNumber,
             customerName: customers.fullName,
-            propertyAddress: customerMeterAccounts.propertyAddress,
           })
           .from(customerMeterAccounts)
           .innerJoin(
@@ -167,14 +169,16 @@ export default async function MeterDetailsPage({
   );
 
   return (
-    <section className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <Link
-        className="text-sm font-semibold text-teal-900 underline-offset-4 hover:underline"
-        href="/dashboard/meters"
-      >
-        Back to meters
-      </Link>
-      <header className="mb-8 mt-6">
+    <section className="mx-auto w-full max-w-3xl space-y-6">
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Meters", href: "/dashboard/meters" },
+          { label: meter.serialNumber },
+        ]}
+      />
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <header className="mb-8">
         <p className="mb-2 text-sm font-semibold text-teal-800">Assets</p>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
           {meter.serialNumber}
@@ -267,6 +271,12 @@ export default async function MeterDetailsPage({
                       {assignment.assignedByName ?? "Unavailable user"}
                     </dd>
                   </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Location</dt>
+                    <dd className="mt-1 text-slate-900">
+                      {assignment.locationDescription ?? "Not specified"}
+                    </dd>
+                  </div>
                   {assignment.removedAt && (
                     <>
                       <div>
@@ -307,6 +317,7 @@ export default async function MeterDetailsPage({
           status={meter.status as "ACTIVE" | "DEFECTIVE"}
         />
       )}
+      </div>
     </section>
   );
 }

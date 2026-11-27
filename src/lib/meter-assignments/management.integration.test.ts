@@ -2,7 +2,7 @@ import "dotenv/config";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { afterEach, test } from "node:test";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   auditLogs,
@@ -18,7 +18,11 @@ import {
 } from "@/lib/db/schema";
 import { getSessionPolicy } from "@/lib/auth/policy";
 import { createOpaqueToken, hashOpaqueToken } from "@/lib/auth/token";
-import { assignMeter, removeMeterAssignment } from "./management";
+import {
+  assignMeter,
+  removeMeterAssignment,
+  updateMeterAssignmentLocation,
+} from "./management";
 
 const fixtureIds = {
   users: new Set<string>(),
@@ -83,7 +87,6 @@ async function createFixture(): Promise<{ token: string; accountId: string; mete
     customerId,
     serviceVariantId: variant.id,
     zoneId: null,
-    propertyAddress: "Meter Assignment Plot",
     status: "ACTIVE",
   });
 
@@ -120,10 +123,53 @@ afterEach(async () => {
 test("meter assignment starts at zero, prevents duplicate active assignment, and can be removed", async () => {
   assertLocalDatabase();
   const fixture = await createFixture();
-  const assigned = await assignMeter(fixture.token, fixture.meterId, fixture.accountId);
+  const assigned = await assignMeter(
+    fixture.token,
+    fixture.meterId,
+    fixture.accountId,
+    "Near the pump shed",
+  );
   assert.equal(assigned.kind, "success");
   if (assigned.kind !== "success") return;
   fixtureIds.assignments.add(assigned.assignmentId);
+
+  const locationUpdate = await updateMeterAssignmentLocation(
+    fixture.token,
+    assigned.assignmentId,
+    "Beside the main gate",
+  );
+  assert.equal(locationUpdate.kind, "success");
+  if (locationUpdate.kind !== "success") return;
+  assert.equal(locationUpdate.locationDescription, "Beside the main gate");
+
+  const [assignment] = await db
+    .select({
+      locationDescription: meterAssignments.locationDescription,
+    })
+    .from(meterAssignments)
+    .where(eq(meterAssignments.id, assigned.assignmentId))
+    .limit(1);
+  assert.equal(assignment?.locationDescription, "Beside the main gate");
+
+  const [locationAudit] = await db
+    .select({
+      action: auditLogs.action,
+      oldValues: auditLogs.oldValues,
+      newValues: auditLogs.newValues,
+    })
+    .from(auditLogs)
+    .where(
+      and(
+        eq(auditLogs.entityId, assigned.assignmentId),
+        eq(auditLogs.action, "meter_assignment.location_updated"),
+      ),
+    )
+    .limit(1);
+  assert.deepEqual(locationAudit, {
+    action: "meter_assignment.location_updated",
+    oldValues: { locationDescription: "Near the pump shed" },
+    newValues: { locationDescription: "Beside the main gate" },
+  });
 
   const duplicate = await assignMeter(fixture.token, fixture.meterId, fixture.accountId);
   assert.deepEqual(duplicate, { kind: "meter-already-assigned" });
@@ -134,8 +180,21 @@ test("meter assignment starts at zero, prevents duplicate active assignment, and
     "Meter replaced",
   );
   assert.equal(removed.kind, "success");
+  const historicalUpdate = await updateMeterAssignmentLocation(
+    fixture.token,
+    assigned.assignmentId,
+    "Should not change",
+  );
+  assert.deepEqual(historicalUpdate, {
+    kind: "already-removed",
+  });
 
-  const reassigned = await assignMeter(fixture.token, fixture.meterId, fixture.accountId);
+  const reassigned = await assignMeter(
+    fixture.token,
+    fixture.meterId,
+    fixture.accountId,
+    null,
+  );
   assert.equal(reassigned.kind, "success");
   if (reassigned.kind === "success") fixtureIds.assignments.add(reassigned.assignmentId);
 });

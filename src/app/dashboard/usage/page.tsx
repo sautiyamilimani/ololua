@@ -3,6 +3,8 @@ import { ComingSoon } from "@/components/dashboard/coming-soon";
 
 export const metadata: Metadata = { title: "Usage | Ololua MIS" };
 
+export const instant = false;
+
 export default function UsagePage() {
   return (
     <ComingSoon

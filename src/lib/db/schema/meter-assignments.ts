@@ -11,6 +11,7 @@ export const meterAssignments = pgTable(
     meterId: uuid("meter_id").notNull().references(() => meters.id, { onDelete: "restrict" }),
     customerMeterAccountId: uuid("customer_meter_account_id").notNull().references(() => customerMeterAccounts.id, { onDelete: "restrict" }),
     initialReading: numeric("initial_reading", { precision: 12, scale: 3 }).notNull(),
+    locationDescription: text("location_description"),
     assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull(),
     assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
     removedAt: timestamp("removed_at", { withTimezone: true }),

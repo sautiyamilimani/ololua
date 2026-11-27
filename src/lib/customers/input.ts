@@ -8,8 +8,6 @@ export type CreateCustomerInput = {
   fullName: string;
   phone: string;
   email: string;
-  physicalAddress: string | null;
-  locationDescription: string | null;
   notes: string | null;
 };
 
@@ -18,8 +16,6 @@ export type UpdateCustomerInput = {
   fullName?: string;
   phone?: string;
   email?: string;
-  physicalAddress?: string | null;
-  locationDescription?: string | null;
   notes?: string | null;
   status?: CustomerStatus;
 };
@@ -29,6 +25,10 @@ export type LinkStaffCustomerAccessInput = {
   customerId: string;
 };
 
+export type CustomerEmailVerificationInput =
+  | { action: "request" }
+  | { action: "verify"; code: string };
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -37,8 +37,6 @@ const CREATE_FIELDS = new Set([
   "fullName",
   "phone",
   "email",
-  "physicalAddress",
-  "locationDescription",
   "notes",
 ]);
 const UPDATE_FIELDS = new Set([...CREATE_FIELDS, "status"]);
@@ -97,14 +95,6 @@ export function parseCreateCustomerInput(
   const fullName = parseRequiredText(value.fullName, 150);
   const phone = parseRequiredText(value.phone, 20);
   const email = parseEmail(value.email);
-  const physicalAddress =
-    value.physicalAddress === undefined
-      ? { valid: true as const, value: null }
-      : parseOptionalText(value.physicalAddress);
-  const locationDescription =
-    value.locationDescription === undefined
-      ? { valid: true as const, value: null }
-      : parseOptionalText(value.locationDescription);
   const notes =
     value.notes === undefined
       ? { valid: true as const, value: null }
@@ -115,8 +105,6 @@ export function parseCreateCustomerInput(
     !fullName ||
     !phone ||
     !email ||
-    !physicalAddress.valid ||
-    !locationDescription.valid ||
     !notes.valid
   ) {
     return null;
@@ -127,8 +115,6 @@ export function parseCreateCustomerInput(
     fullName,
     phone,
     email,
-    physicalAddress: physicalAddress.value,
-    locationDescription: locationDescription.value,
     notes: notes.value,
   };
 }
@@ -178,11 +164,7 @@ export function parseUpdateCustomerInput(
     input.email = email;
   }
 
-  for (const field of [
-    "physicalAddress",
-    "locationDescription",
-    "notes",
-  ] as const) {
+  for (const field of ["notes"] as const) {
     if (field in value) {
       const parsed = parseOptionalText(value[field]);
       if (!parsed.valid) {
@@ -222,4 +204,30 @@ export function parseLinkStaffCustomerAccessInput(
     staffUserId: value.staffUserId,
     customerId: value.customerId,
   };
+}
+
+export function parseCustomerEmailVerificationInput(
+  value: unknown,
+): CustomerEmailVerificationInput | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (
+    value.action === "request" &&
+    Object.keys(value).length === 1
+  ) {
+    return { action: "request" };
+  }
+
+  if (
+    value.action === "verify" &&
+    Object.keys(value).length === 2 &&
+    typeof value.code === "string" &&
+    /^\d{6}$/u.test(value.code)
+  ) {
+    return { action: "verify", code: value.code };
+  }
+
+  return null;
 }

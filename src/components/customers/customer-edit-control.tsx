@@ -2,11 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-
-type FormMessage =
-  | { kind: "success"; text: string }
-  | { kind: "error"; text: string }
-  | null;
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -18,8 +14,6 @@ export function CustomerEditControl({
   fullName,
   phone,
   email,
-  physicalAddress,
-  locationDescription,
   notes,
   status,
 }: {
@@ -28,14 +22,12 @@ export function CustomerEditControl({
   fullName: string;
   phone: string;
   email: string;
-  physicalAddress: string | null;
-  locationDescription: string | null;
   notes: string | null;
   status: "active" | "inactive";
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<FormMessage>(null);
+  const notifications = useNotifications();
   const fieldClass =
     "block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-950 shadow-sm outline-none transition focus:border-teal-700 focus:ring-4 focus:ring-teal-700/15";
 
@@ -44,7 +36,6 @@ export function CustomerEditControl({
     if (submitting) return;
     const form = new FormData(event.currentTarget);
     setSubmitting(true);
-    setMessage(null);
 
     try {
       const response = await fetch(`/api/customers/${customerId}`, {
@@ -61,8 +52,6 @@ export function CustomerEditControl({
           fullName: String(form.get("fullName") ?? ""),
           phone: String(form.get("phone") ?? ""),
           email: String(form.get("email") ?? ""),
-          physicalAddress: String(form.get("physicalAddress") ?? "").trim() || null,
-          locationDescription: String(form.get("locationDescription") ?? "").trim() || null,
           notes: String(form.get("notes") ?? "").trim() || null,
           status: String(form.get("status") ?? ""),
         }),
@@ -76,24 +65,40 @@ export function CustomerEditControl({
         let text = "The customer could not be updated.";
         if (isRecord(payload) && isRecord(payload.error)) {
           if (payload.error.code === "CUSTOMER_CONFLICT") {
-            text = "Resolve portal access or invitation restrictions before changing the email.";
+            text = "A customer or portal account already uses that email address.";
+          } else if (payload.error.code === "CUSTOMER_EMAIL_CHANGE_RESTRICTED") {
+            text = "Revoke the customer's active portal link before changing the email.";
           } else if (payload.error.code === "FORBIDDEN") {
             text = "You do not have permission to manage customers.";
           } else if (payload.error.code === "CSRF_FAILED") {
             text = "For your security, reload this page and try again.";
           }
         }
-        setMessage({ kind: "error", text });
+        notifications.error(text);
         return;
       }
 
-      setMessage({ kind: "success", text: "Customer updated successfully." });
+      const emailChanged = email.toLowerCase() !==
+        String(form.get("email") ?? "").trim().toLowerCase();
+      const data =
+        isRecord(payload) && isRecord(payload.data) ? payload.data : null;
+      const pendingInvitationRevoked =
+        data?.pendingInvitationRevoked === true;
+      notifications.success(
+        emailChanged
+          ? `Email address updated. Verify the new address before issuing a portal invitation.${
+              pendingInvitationRevoked
+                ? " The previous pending invitation was revoked and must be reissued after verification."
+                : ""
+            }`
+          : "Customer updated successfully.",
+      );
       router.refresh();
     } catch {
-      setMessage({
-        kind: "error",
-        text: "Could not reach the service. Check your connection and try again.",
-      });
+      notifications.error(
+        "Could not reach the service. Check your connection and try again.",
+        true,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -102,19 +107,6 @@ export function CustomerEditControl({
   return (
     <form className="mt-8 border-t border-slate-200 pt-6" onSubmit={(event) => void handleSubmit(event)}>
       <h2 className="text-base font-semibold text-slate-950">Edit customer</h2>
-      {message && (
-        <p
-          aria-live="polite"
-          className={`mt-4 rounded-lg border px-3 py-2.5 text-sm ${
-            message.kind === "error"
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-teal-200 bg-teal-50 text-teal-800"
-          }`}
-          role={message.kind === "error" ? "alert" : "status"}
-        >
-          {message.text}
-        </p>
-      )}
       <div className="mt-4 grid gap-5 sm:grid-cols-2">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="customerType">
@@ -151,18 +143,6 @@ export function CustomerEditControl({
             Email address
           </label>
           <input className={fieldClass} defaultValue={email} id="email" maxLength={254} name="email" type="email" required />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="physicalAddress">
-            Physical address
-          </label>
-          <input className={fieldClass} defaultValue={physicalAddress ?? ""} id="physicalAddress" name="physicalAddress" />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="locationDescription">
-            Location description
-          </label>
-          <input className={fieldClass} defaultValue={locationDescription ?? ""} id="locationDescription" name="locationDescription" />
         </div>
         <div className="sm:col-span-2">
           <label className="mb-1.5 block text-sm font-medium text-slate-700" htmlFor="notes">

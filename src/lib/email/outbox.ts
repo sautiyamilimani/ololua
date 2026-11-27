@@ -24,12 +24,15 @@ const RETRY_BASE_MS = 60 * 1000;
 const RETRY_MAX_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_BATCH_SIZE = 10;
 const MAX_BATCH_SIZE = 50;
+const WEBSITE_FOOTER =
+  "To find out more, visit Ololua website: https://mwavuna.github.io/ololua";
 
 export type OutgoingEmail = {
   from: { name: string; address: string };
   to: string;
   subject: string;
   text: string;
+  html?: string;
   messageId: string;
 };
 
@@ -37,6 +40,7 @@ export type EmailTemplateKey =
   | "invitation"
   | "password_reset"
   | "password_change_otp"
+  | "customer_email_verification"
   | "staff_account_suspended"
   | "staff_account_reactivated";
 
@@ -98,6 +102,70 @@ function createApplicationLink(path: string, token: string): string {
   return url.toString();
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/gu, (character) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&#39;",
+    };
+    return entities[character] ?? character;
+  });
+}
+
+function renderOtpEmailHtml({
+  title,
+  fullName,
+  introduction,
+  otp,
+  detail,
+  expiration,
+  warning,
+}: {
+  title: string;
+  fullName: string;
+  introduction: string;
+  otp: string;
+  detail?: string;
+  expiration: string;
+  warning: string;
+}): string {
+  const digitCells = [...otp]
+    .map(
+      (digit) =>
+        `<td style="width:44px;height:54px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;color:#0f172a;font-family:Arial,sans-serif;font-size:26px;font-weight:700;text-align:center;vertical-align:middle;">${digit}</td>`,
+    )
+    .join("");
+
+  return `<!doctype html>
+<html lang="en">
+  <body style="margin:0;background:#f1f5f9;padding:24px;font-family:Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" style="width:100%;max-width:560px;margin:0 auto;border-collapse:collapse;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;">
+      <tr>
+        <td style="padding:32px 24px;">
+          <p style="margin:0 0 8px;color:#0f766e;font-size:12px;font-weight:700;letter-spacing:1px;">OLOLUA WATER SERVICES</p>
+          <h1 style="margin:0 0 20px;font-size:24px;line-height:1.3;">${escapeHtml(title)}</h1>
+          <p style="margin:0 0 12px;font-size:16px;">Hello ${escapeHtml(fullName)},</p>
+          <p style="margin:0 0 20px;color:#334155;font-size:15px;line-height:1.6;">${escapeHtml(introduction)}</p>
+          ${detail ? `<p style="margin:0 0 12px;color:#334155;font-size:14px;">${escapeHtml(detail)}</p>` : ""}
+          <table role="presentation" aria-label="Six-digit verification code" style="margin:0 auto 20px;border-collapse:separate;border-spacing:6px;">
+            <tr>${digitCells}</tr>
+          </table>
+          <p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.6;">${escapeHtml(expiration)}</p>
+          <p style="margin:0 0 24px;color:#334155;font-size:14px;line-height:1.6;">${escapeHtml(warning)}</p>
+          <p style="margin:0;border-top:1px solid #e2e8f0;padding-top:16px;color:#64748b;font-size:13px;">
+            To find out more, visit
+            <a href="https://mwavuna.github.io/ololua" style="color:#0f766e;text-decoration:underline;">Ololua website</a>.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
 function buildMessage(
   row: ClaimedEmail,
   senderAddress: string,
@@ -138,6 +206,7 @@ function buildMessage(
   const fullName = requireString(row.templateData, "fullName");
   let subject: string;
   let text: string;
+  let html: string | undefined;
 
   if (row.templateKey === "staff_account_suspended") {
     subject = "Your Ololua Water Services account is suspended";
@@ -166,6 +235,15 @@ function buildMessage(
     }
 
     subject = "Verify your password change";
+    html = renderOtpEmailHtml({
+      title: subject,
+      fullName,
+      introduction: "Use this one-time code to verify your password change.",
+      otp,
+      expiration: "The code expires in 10 minutes.",
+      warning:
+        "If you did not request this change, ignore this email and keep your current password.",
+    });
     text = [
       `Hello ${fullName},`,
       "",
@@ -173,6 +251,42 @@ function buildMessage(
       otp,
       "",
       "The code expires in 10 minutes. If you did not request this change, ignore this email and keep your current password.",
+      "Ololua Water Services",
+    ].join("\n");
+  } else if (row.templateKey === "customer_email_verification") {
+    const otp = typeof secret.otp === "string" ? secret.otp : undefined;
+
+    if (!otp || !/^\d{6}$/u.test(otp)) {
+      throw new PermanentEmailError("Customer email verification code is invalid.");
+    }
+
+    const customerNumber =
+      typeof row.templateData.customerNumber === "string"
+        ? `Customer number: ${row.templateData.customerNumber.replace(/[\r\n\t]+/gu, " ").trim()}\n`
+        : "";
+    subject = "Verify your email address";
+    html = renderOtpEmailHtml({
+      title: subject,
+      fullName,
+      introduction:
+        "Use this one-time code to verify the email address on your Ololua Water Services customer record.",
+      otp,
+      detail:
+        typeof row.templateData.customerNumber === "string"
+          ? `Customer number: ${row.templateData.customerNumber.replace(/[\r\n\t]+/gu, " ").trim()}`
+          : undefined,
+      expiration: "The code expires in 10 minutes.",
+      warning:
+        "If you did not expect this message, contact Ololua Water Services.",
+    });
+    text = [
+      `Hello ${fullName},`,
+      "",
+      "Use this one-time code to verify the email address on your Ololua Water Services customer record:",
+      "",
+      customerNumber + otp,
+      "",
+      "The code expires in 10 minutes. If you did not expect this message, contact Ololua Water Services.",
       "Ololua Water Services",
     ].join("\n");
   } else {
@@ -234,6 +348,7 @@ function buildMessage(
     }
   }
 
+  text = `${text.trimEnd()}\n\n${WEBSITE_FOOTER}`;
   const senderDomain = senderAddress.split("@")[1];
 
   return {
@@ -241,6 +356,7 @@ function buildMessage(
     to: row.recipientEmail,
     subject,
     text,
+    ...(html ? { html } : {}),
     messageId: `<${row.id}@${senderDomain}>`,
   };
 }

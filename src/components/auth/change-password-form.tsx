@@ -3,15 +3,16 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { OtpCodeInput } from "./otp-code-input";
 import { PasswordVisibilityToggle } from "./password-visibility-toggle";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 type Step = "current-password" | "otp" | "new-password";
+const EMPTY_OTP = () => Array.from({ length: 6 }, () => "");
 
 type FormState =
   | { kind: "idle" }
-  | { kind: "submitting" }
-  | { kind: "error"; message: string }
-  | { kind: "notice"; message: string };
+  | { kind: "submitting" };
 
 type ApiResult =
   | { kind: "response"; response: Response; payload: unknown }
@@ -98,10 +99,11 @@ async function postJson(url: string, body: Record<string, string>): Promise<ApiR
 
 export function ChangePasswordForm() {
   const router = useRouter();
+  const notifications = useNotifications();
   const [step, setStep] = useState<Step>("current-password");
   const [state, setState] = useState<FormState>({ kind: "idle" });
   const [currentPassword, setCurrentPassword] = useState("");
-  const [otp, setOtp] = useState("");
+  const [otpDigits, setOtpDigits] = useState<string[]>(EMPTY_OTP);
   const [verificationToken, setVerificationToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -110,32 +112,32 @@ export function ChangePasswordForm() {
   const [confirmationVisible, setConfirmationVisible] = useState(false);
 
   const isSubmitting = state.kind === "submitting";
+  const otp = otpDigits.join("");
   const passwordsMatch = confirmation.length > 0 && newPassword === confirmation;
   const passwordsMismatch =
     confirmation.length > 0 && newPassword !== confirmation;
 
+  function showError(message: string, persistent = false): void {
+    setState({ kind: "idle" });
+    notifications.error(message, persistent);
+  }
+
   function showRequestError(result: ApiResult): boolean {
     if (result.kind === "network-error") {
-      setState({
-        kind: "error",
-        message: "We could not reach the service. Check your connection and try again.",
-      });
+      showError(
+        "We could not reach the service. Check your connection and try again.",
+        true,
+      );
       return true;
     }
 
     if (result.kind === "invalid-response") {
-      setState({
-        kind: "error",
-        message: "We could not verify the response. Please try again.",
-      });
+      showError("We could not verify the response. Please try again.");
       return true;
     }
 
     if (!result.response.ok) {
-      setState({
-        kind: "error",
-        message: getErrorMessage(getErrorCode(result.payload)),
-      });
+      showError(getErrorMessage(getErrorCode(result.payload)));
       return true;
     }
 
@@ -161,21 +163,17 @@ export function ChangePasswordForm() {
       result.response.status !== 202 ||
       getData(result.payload)?.codeRequested !== true
     ) {
-      setState({
-        kind: "error",
-        message: "We could not verify the response. Please try again.",
-      });
+      showError("We could not verify the response. Please try again.");
       return;
     }
 
-    setOtp("");
+    setOtpDigits(EMPTY_OTP());
     setVerificationToken("");
     setStep("otp");
-    setState({
-      kind: "notice",
-      message:
-        "A six-digit code was requested for your verified email address. Check your inbox and spam folder.",
-    });
+    setState({ kind: "idle" });
+    notifications.success(
+      "A six-digit code was requested for your verified email address. Check your inbox and spam folder.",
+    );
   }
 
   async function verifyCode(): Promise<void> {
@@ -203,16 +201,13 @@ export function ChangePasswordForm() {
       typeof token !== "string" ||
       !/^[A-Za-z0-9_-]{43}$/u.test(token)
     ) {
-      setState({
-        kind: "error",
-        message: "We could not verify the response. Please try again.",
-      });
+      showError("We could not verify the response. Please try again.");
       return;
     }
 
     setVerificationToken(token);
     setCurrentPassword("");
-    setOtp("");
+    setOtpDigits(EMPTY_OTP());
     setStep("new-password");
     setState({ kind: "idle" });
   }
@@ -243,11 +238,9 @@ export function ChangePasswordForm() {
       setNewPassword("");
       setConfirmation("");
       setStep("current-password");
-      setState({
-        kind: "error",
-        message:
-          "Your verification has expired or can no longer be used. Enter your current password to request a new code.",
-      });
+      showError(
+        "Your verification has expired or can no longer be used. Enter your current password to request a new code.",
+      );
       return;
     }
 
@@ -260,21 +253,19 @@ export function ChangePasswordForm() {
       !result.response.ok ||
       getData(result.payload)?.passwordChanged !== true
     ) {
-      setState({
-        kind: "error",
-        message: "We could not verify the response. Please try again.",
-      });
+      showError("We could not verify the response. Please try again.");
       return;
     }
 
     setCurrentPassword("");
-    setOtp("");
+    setOtpDigits(EMPTY_OTP());
     setVerificationToken("");
     setNewPassword("");
     setConfirmation("");
     setCurrentPasswordVisible(false);
     setNewPasswordVisible(false);
     setConfirmationVisible(false);
+    notifications.success("Your password has been changed. Sign in again to continue.");
     router.replace("/sign-in");
   }
 
@@ -335,23 +326,16 @@ export function ChangePasswordForm() {
           <div>
             <label
               className="mb-2 block text-sm font-medium text-slate-800"
-              htmlFor="password-change-otp"
+              htmlFor="password-change-otp-1"
             >
               Six-digit email code
             </label>
-            <input
-              autoComplete="one-time-code"
-              className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base tracking-widest text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-700 focus:ring-4 focus:ring-teal-700/15"
-              id="password-change-otp"
-              inputMode="numeric"
-              maxLength={6}
-              name="otp"
-              onChange={(event) =>
-                setOtp(event.currentTarget.value.replace(/\D/gu, "").slice(0, 6))
-              }
-              pattern="[0-9]{6}"
-              required
-              value={otp}
+            <OtpCodeInput
+              disabled={isSubmitting}
+              idPrefix="password-change-otp"
+              label="Six-digit email code"
+              onChange={setOtpDigits}
+              value={otpDigits}
             />
           </div>
           <p className="text-sm leading-6 text-slate-600">
@@ -440,24 +424,6 @@ export function ChangePasswordForm() {
             supported.
           </p>
         </>
-      )}
-
-      {state.kind === "error" && (
-        <div
-          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-900"
-          role="alert"
-        >
-          {state.message}
-        </div>
-      )}
-
-      {state.kind === "notice" && (
-        <div
-          className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950"
-          role="status"
-        >
-          {state.message}
-        </div>
       )}
 
       <button

@@ -101,7 +101,6 @@ async function createFixture(): Promise<{ token: string; assignmentId: string }>
     customerId,
     serviceVariantId: variant.id,
     zoneId: null,
-    propertyAddress: "Reading Test Plot",
     status: "ACTIVE",
   });
 

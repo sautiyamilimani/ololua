@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { MeterCreateForm } from "@/components/meters/meter-form";
+import { Breadcrumbs } from "@/components/navigation/breadcrumbs";
 import { getActiveSession } from "@/lib/auth/session";
 import {
   METER_MANAGE_PERMISSION,
@@ -39,14 +39,16 @@ export default async function NewMeterPage() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <Link
-        className="text-sm font-semibold text-teal-900 underline-offset-4 hover:underline"
-        href="/dashboard/meters"
-      >
-        Back to meters
-      </Link>
-      <header className="mb-6 mt-6">
+    <section className="mx-auto w-full max-w-xl space-y-6">
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Meters", href: "/dashboard/meters" },
+          { label: "Add meter" },
+        ]}
+      />
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <header className="mb-6">
         <p className="mb-2 text-sm font-semibold text-teal-800">Assets</p>
         <h1 className="text-2xl font-semibold text-slate-950">Add meter</h1>
         <p className="mt-2 text-sm text-slate-600">
@@ -54,6 +56,7 @@ export default async function NewMeterPage() {
         </p>
       </header>
       <MeterCreateForm />
+      </div>
     </section>
   );
 }

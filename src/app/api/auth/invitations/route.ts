@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getApplicationOrigin, hasValidCsrfHeaders } from "@/lib/auth/csrf";
 import {
   issueInvitation,
@@ -12,6 +12,7 @@ import {
   SESSION_COOKIE_NAME,
   setSessionCookie,
 } from "@/lib/auth/session-token";
+import { isEmailOutboxSendingEnabled } from "@/lib/email/outbox-config";
 import { sendPendingOutboxEmails } from "@/lib/email/outbox-delivery";
 
 const UUID_PATTERN =
@@ -20,6 +21,13 @@ const UUID_PATTERN =
 function logUnexpectedFailure(error: unknown): void {
   const errorType = error instanceof Error ? error.name : "UnknownError";
   console.error(`[auth.invitation.issue] Internal operation failed (${errorType}).`);
+}
+
+function logEmailDeliveryFailure(error: unknown): void {
+  const errorType = error instanceof Error ? error.name : "UnknownError";
+  console.error(
+    `[auth.invitation.issue] Deferred email delivery failed (${errorType}).`,
+  );
 }
 
 function parseInvitationInput(value: unknown): IssueInvitationInput | null {
@@ -117,14 +125,19 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
 
-    let emailSent = false;
-
-    try {
-      const delivery = await sendPendingOutboxEmails("invitation");
-      emailSent = delivery.sent > 0;
-    } catch (error) {
-      const errorType = error instanceof Error ? error.name : "UnknownError";
-      console.error(`[auth.invitation.issue] Immediate email delivery was unavailable (${errorType}).`);
+    if (isEmailOutboxSendingEnabled()) {
+      after(async () => {
+        try {
+          const delivery = await sendPendingOutboxEmails("invitation");
+          if (delivery.retried > 0 || delivery.failed > 0) {
+            console.error(
+              `[auth.invitation.issue] Email delivery needs retry or failed (retried=${delivery.retried}, failed=${delivery.failed}).`,
+            );
+          }
+        } catch (error) {
+          logEmailDeliveryFailure(error);
+        }
+      });
     }
 
     const response = successResponse(
@@ -132,7 +145,8 @@ export async function POST(request: Request): Promise<NextResponse> {
         invitationId: result.invitationId,
         expiresAt: result.expiresAt.toISOString(),
         emailQueued: true,
-        emailSent,
+        emailSent: false,
+        emailSendingEnabled: isEmailOutboxSendingEnabled(),
       },
       202,
     );

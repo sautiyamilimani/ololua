@@ -55,3 +55,7 @@ Status must be `ACTIVE` or `DEFECTIVE`.
 - `500 INTERNAL_ERROR` for unexpected failures.
 
 No meter deletion is exposed. Historical assignment and reading records must not be deleted when a meter becomes defective.
+
+Meter locations are stored on `meter_assignments`, because a meter's location
+belongs to its installation period rather than to its service variant or
+service account.

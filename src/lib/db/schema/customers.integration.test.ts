@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, test } from "node:test";
 import { inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { customerEmailVerificationTokens } from "./customer-email-verification-tokens";
 import { customers } from "./customers";
 
 const fixtureCustomerIds = new Set<string>();
@@ -64,11 +65,39 @@ function compareDecimal(leftValue: string, rightValue: string): number {
 afterEach(async () => {
   if (fixtureCustomerIds.size > 0) {
     await db
+      .delete(customerEmailVerificationTokens)
+      .where(
+        inArray(customerEmailVerificationTokens.customerId, [
+          ...fixtureCustomerIds,
+        ]),
+      );
+    await db
       .delete(customers)
       .where(inArray(customers.id, [...fixtureCustomerIds]));
     fixtureCustomerIds.clear();
   }
 });
+
+function hasPostgresConstraint(
+  error: unknown,
+  code: string,
+  constraintName: string,
+): boolean {
+  let candidate: unknown = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (typeof candidate !== "object" || candidate === null) return false;
+    if (
+      "code" in candidate &&
+      candidate.code === code &&
+      "constraint" in candidate &&
+      candidate.constraint === constraintName
+    ) {
+      return true;
+    }
+    candidate = "cause" in candidate ? candidate.cause : null;
+  }
+  return false;
+}
 
 test("customer email unique index accepts a valid row and rejects case variants", async () => {
   assertLocalDatabase();
@@ -113,6 +142,93 @@ test("customer email unique index accepts a valid row and rejects case variants"
 
   assert.ok(index);
   assert.match(index.indexdef, /CREATE UNIQUE INDEX .*lower/iu);
+});
+
+test("customer verification token constraints accept valid rows and reject duplicates, bad expiry, and missing customers", async () => {
+  assertLocalDatabase();
+
+  const fixtureKey = randomUUID();
+  const customerId = randomUUID();
+  const expiryCustomerId = randomUUID();
+  fixtureCustomerIds.add(customerId);
+  fixtureCustomerIds.add(expiryCustomerId);
+  const now = new Date();
+  const validTokenId = randomUUID();
+
+  await db.insert(customers).values([
+    {
+      id: customerId,
+      customerNumber: `VFY-${fixtureKey.slice(0, 12)}`,
+      customerType: "individual",
+      fullName: "Email Verification Constraint Test",
+      phone: "0700000003",
+      email: `verification-${fixtureKey}@example.test`,
+      status: "active",
+    },
+    {
+      id: expiryCustomerId,
+      customerNumber: `VFY-${fixtureKey.slice(12, 24)}`,
+      customerType: "business",
+      fullName: "Email Verification Expiry Test",
+      phone: "0700000004",
+      email: `verification-expiry-${fixtureKey}@example.test`,
+      status: "active",
+    },
+  ]);
+  await db.insert(customerEmailVerificationTokens).values({
+    id: validTokenId,
+    customerId,
+    email: `verification-${fixtureKey}@example.test`,
+    tokenHash: randomUUID(),
+    createdAt: now,
+    expiresAt: new Date(now.getTime() + 60_000),
+  });
+
+  await assert.rejects(
+    db.insert(customerEmailVerificationTokens).values({
+      customerId,
+      email: `verification-${fixtureKey}@example.test`,
+      tokenHash: randomUUID(),
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + 60_000),
+    }),
+    (error: unknown) =>
+      hasPostgresConstraint(
+        error,
+        "23505",
+        "customer_email_verification_tokens_active_customer_unique",
+      ),
+  );
+  await assert.rejects(
+    db.insert(customerEmailVerificationTokens).values({
+      customerId: expiryCustomerId,
+      email: `verification-expiry-${fixtureKey}@example.test`,
+      tokenHash: randomUUID(),
+      createdAt: now,
+      expiresAt: new Date(now.getTime() - 1),
+    }),
+    (error: unknown) =>
+      hasPostgresConstraint(
+        error,
+        "23514",
+        "customer_email_verification_tokens_expiry_check",
+      ),
+  );
+  await assert.rejects(
+    db.insert(customerEmailVerificationTokens).values({
+      customerId: randomUUID(),
+      email: `missing-${fixtureKey}@example.test`,
+      tokenHash: randomUUID(),
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + 60_000),
+    }),
+    (error: unknown) =>
+      hasPostgresConstraint(
+        error,
+        "23503",
+        "customer_email_verification_tokens_customer_id_customers_id_fk",
+      ),
+  );
 });
 
 test("customer number sequence starts after existing OLO numbers and advances", async () => {

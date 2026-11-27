@@ -13,7 +13,7 @@ export function PasswordVisibilityToggle({
     <button
       aria-label={`${visible ? "Hide" : "Show"} ${label}`}
       aria-pressed={visible}
-      className="absolute inset-y-0 right-0 flex items-center justify-center rounded-r-lg px-3 text-slate-600 transition hover:text-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-800"
+      className="absolute right-[6px] top-1/2 flex size-[40px] -translate-y-1/2 items-center justify-center rounded-[10px] border-0 bg-transparent text-[#b9d3d9] transition hover:bg-white/8 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--aqua)]"
       onClick={onToggle}
       type="button"
     >

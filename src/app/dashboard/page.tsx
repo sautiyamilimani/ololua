@@ -4,14 +4,13 @@ export const metadata: Metadata = {
   title: "Dashboard | Ololua Water Services",
 };
 
+export const instant = false;
+
 export default function DashboardPage() {
   return (
-    <section
-      aria-labelledby="dashboard-title"
-      className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-    >
+    <section aria-labelledby="dashboard-title" className="app-card p-5 sm:p-7">
       <h1
-        className="text-2xl font-semibold tracking-tight text-slate-950"
+        className="text-2xl font-extrabold"
         id="dashboard-title"
       >
         Dashboard

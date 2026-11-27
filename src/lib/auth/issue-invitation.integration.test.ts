@@ -85,6 +85,7 @@ async function createCustomer(email: string): Promise<string> {
     fullName: "Invitation Target Test",
     phone: "0700000000",
     email,
+    emailVerifiedAt: new Date(),
     status: "active",
   });
 
@@ -259,6 +260,7 @@ test("customer issuance uses the customer role and rejects an existing active li
     status: "active",
     emailVerifiedAt: now,
   });
+
   await db.insert(customerUserAccess).values({
     userId: linkedUserId,
     customerId,
@@ -268,6 +270,53 @@ test("customer issuance uses the customer role and rejects an existing active li
   const conflict = await issueInvitation(issuer.token, input, null);
   assert.equal(conflict.kind, "conflict");
   assert.ok(invitedUserId);
+});
+
+test("customer invitation creates a pending invitation without a separate verification email", async () => {
+  const issuer = await createIssuer("admin");
+  const email = `issuance-test-unverified-${randomUUID()}@example.test`;
+  const customerId = await createCustomer(
+    email,
+  );
+  await db
+    .update(customers)
+    .set({ emailVerifiedAt: null })
+    .where(eq(customers.id, customerId));
+
+  const result = await issueInvitation(
+    issuer.token,
+    { accountType: "customer", customerId },
+    null,
+  );
+  assert.equal(result.kind, "issued");
+  if (result.kind !== "issued") return;
+
+  const userId = await trackInvitedUser(email);
+  const [invitation] = await db
+    .select({
+      customerId: invitations.customerId,
+      status: invitations.status,
+    })
+    .from(invitations)
+    .where(eq(invitations.id, result.invitationId))
+    .limit(1);
+  assert.equal(invitation?.customerId, customerId);
+  assert.equal(invitation?.status, "pending");
+
+  const [customer] = await db
+    .select({ emailVerifiedAt: customers.emailVerifiedAt })
+    .from(customers)
+    .where(eq(customers.id, customerId))
+    .limit(1);
+  assert.equal(customer?.emailVerifiedAt, null);
+
+  const [outbox] = await db
+    .select({ status: emailOutbox.status })
+    .from(emailOutbox)
+    .where(eq(emailOutbox.idempotencyKey, `invitation:${result.invitationId}`))
+    .limit(1);
+  assert.equal(outbox?.status, "queued");
+  assert.ok(userId);
 });
 
 test("resending revokes the old token and replaces its queued email atomically", async () => {

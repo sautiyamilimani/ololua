@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   accountSecurityEvents,
+  auditLogs,
   customerUserAccess,
   customers,
   invitations,
@@ -159,9 +160,16 @@ export async function acceptInvitation(
   const normalizedUserAgent = userAgent?.slice(0, 512) ?? null;
 
   return db.transaction(async (transaction) => {
+    let customer:
+      | { id: string; email: string; emailVerifiedAt: Date | null }
+      | undefined;
     if (snapshot.customerId !== null) {
-      const [customer] = await transaction
-        .select({ id: customers.id })
+      [customer] = await transaction
+        .select({
+          id: customers.id,
+          email: customers.email,
+          emailVerifiedAt: customers.emailVerifiedAt,
+        })
         .from(customers)
         .where(eq(customers.id, snapshot.customerId))
         .limit(1)
@@ -216,6 +224,12 @@ export async function acceptInvitation(
       invitation.status !== "pending" ||
       invitation.revokedAt !== null ||
       invitation.customerId !== snapshot.customerId
+    ) {
+      return { kind: "invalid" };
+    }
+    if (
+      invitation.customerId !== null &&
+      (!customer || !emailsMatch(customer.email, invitation.invitedEmail))
     ) {
       return { kind: "invalid" };
     }
@@ -291,6 +305,27 @@ export async function acceptInvitation(
 
       if (activeAccess) {
         return { kind: "invalid" };
+      }
+
+      if (customer?.emailVerifiedAt === null) {
+        await transaction
+          .update(customers)
+          .set({ emailVerifiedAt: now, updatedAt: now })
+          .where(eq(customers.id, customer.id));
+        await transaction.insert(auditLogs).values({
+          actorUserId: user.id,
+          action: "customer.email_verified",
+          entityType: "customer",
+          entityId: customer.id,
+          oldValues: { emailVerifiedAt: null },
+          newValues: {
+            email: customer.email,
+            emailVerifiedAt: now.toISOString(),
+            verificationMethod: "invitation_acceptance",
+            invitationId: invitation.id,
+          },
+          createdAt: now,
+        });
       }
     }
 

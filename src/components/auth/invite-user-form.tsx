@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 type InviteUserFormState =
   | { kind: "idle" }
-  | { kind: "submitting" }
-  | { kind: "success"; message: string }
-  | { kind: "error"; message: string };
+  | { kind: "submitting" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,10 +51,16 @@ function getEmailSent(payload: unknown): boolean {
 }
 
 export function InviteUserForm() {
+  const notifications = useNotifications();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [roleKey, setRoleKey] = useState("meter_reader");
   const [state, setState] = useState<InviteUserFormState>({ kind: "idle" });
+
+  function showError(message: string, persistent = false): void {
+    setState({ kind: "idle" });
+    notifications.error(message, persistent);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -86,10 +91,10 @@ export function InviteUserForm() {
         }),
       });
     } catch {
-      setState({
-        kind: "error",
-        message: "We could not reach the service. Check your connection and try again.",
-      });
+      showError(
+        "We could not reach the service. Check your connection and try again.",
+        true,
+      );
       return;
     }
 
@@ -98,30 +103,24 @@ export function InviteUserForm() {
     try {
       payload = await response.json();
     } catch {
-      setState({
-        kind: "error",
-        message: "We could not verify the response. Please try again.",
-      });
+      showError("We could not verify the response. Please try again.");
       return;
     }
 
     if (!response.ok) {
-      setState({
-        kind: "error",
-        message: getErrorMessage(getErrorCode(payload)),
-      });
+      showError(getErrorMessage(getErrorCode(payload)));
       return;
     }
 
     setFullName("");
     setEmail("");
     setRoleKey("meter_reader");
-    setState({
-      kind: "success",
-      message: getEmailSent(payload)
+    setState({ kind: "idle" });
+    notifications.success(
+      getEmailSent(payload)
         ? "The staff invitation was created and the email was sent."
         : "The staff invitation was created and queued for email.",
-    });
+    );
   }
 
   return (
@@ -181,18 +180,6 @@ export function InviteUserForm() {
           <option value="admin">Administrator</option>
         </select>
       </div>
-
-      {state.kind === "error" && (
-        <p aria-live="polite" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700" role="alert">
-          {state.message}
-        </p>
-      )}
-
-      {state.kind === "success" && (
-        <p aria-live="polite" className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2.5 text-sm text-teal-800" role="status">
-          {state.message}
-        </p>
-      )}
 
       <button
         className="min-h-11 w-full rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-900 disabled:cursor-not-allowed disabled:opacity-60"

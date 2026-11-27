@@ -51,8 +51,6 @@ export async function GET(
       id: customerMeterAccounts.id,
       accountNumber: customerMeterAccounts.accountNumber,
       customerId: customerMeterAccounts.customerId,
-      propertyAddress: customerMeterAccounts.propertyAddress,
-      locationDescription: customerMeterAccounts.locationDescription,
       notes: customerMeterAccounts.notes,
       status: customerMeterAccounts.status,
       variantCode: serviceVariants.variantCode,
@@ -77,6 +75,7 @@ export async function GET(
       serialNumber: meters.serialNumber,
       meterStatus: meters.status,
       initialReading: meterAssignments.initialReading,
+      locationDescription: meterAssignments.locationDescription,
       assignedAt: meterAssignments.assignedAt,
       removedAt: meterAssignments.removedAt,
     })

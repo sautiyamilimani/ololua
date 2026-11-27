@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 export type InvitationListItem = {
   id: string;
@@ -32,19 +34,24 @@ export function ManageInvitations({
   invitations: InvitationListItem[];
 }) {
   const router = useRouter();
+  const notifications = useNotifications();
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirmationDialog();
 
   async function revoke(invitation: InvitationListItem): Promise<void> {
-    if (!window.confirm(`Revoke the invitation for ${invitation.email}?`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: "Revoke this invitation?",
+      description: `The invitation for ${invitation.email} will no longer be valid.`,
+      confirmLabel: "Revoke invitation",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     setBusyId(invitation.id);
-    setMessage(null);
 
+    let response: Response;
     try {
-      const response = await fetch(
+      response = await fetch(
         `/api/auth/invitations/${invitation.id}/revoke`,
         {
           method: "POST",
@@ -53,22 +60,19 @@ export function ManageInvitations({
           headers: { "X-CSRF-Protection": "1" },
         },
       );
-      const payload: unknown = await response.json();
-
-      if (!response.ok) {
-        setMessage("The invitation could not be revoked.");
-        return;
-      }
-
-      setMessage(payload && typeof payload === "object"
-        ? "Invitation revoked."
-        : "Invitation revoked.");
-      router.refresh();
     } catch {
-      setMessage("We could not reach the service. Please try again.");
-    } finally {
+      notifications.error("We could not reach the service. Please try again.", true);
       setBusyId(null);
+      return;
     }
+
+    if (!response.ok) {
+      notifications.error("The invitation could not be revoked.");
+    } else {
+      notifications.success("Invitation revoked.");
+      router.refresh();
+    }
+    setBusyId(null);
   }
 
   async function resend(invitation: InvitationListItem): Promise<void> {
@@ -87,15 +91,17 @@ export function ManageInvitations({
         roleKey: invitation.roleKey,
       };
     } else {
-      setMessage("This invitation cannot be resent because its target is unavailable.");
+      notifications.error(
+        "This invitation cannot be resent because its target is unavailable.",
+      );
       return;
     }
 
     setBusyId(invitation.id);
-    setMessage(null);
 
+    let response: Response;
     try {
-      const response = await fetch("/api/auth/invitations", {
+      response = await fetch("/api/auth/invitations", {
         method: "POST",
         cache: "no-store",
         credentials: "same-origin",
@@ -105,29 +111,23 @@ export function ManageInvitations({
         },
         body: JSON.stringify(requestBody),
       });
-
-      if (!response.ok) {
-        setMessage("The invitation could not be resent.");
-        return;
-      }
-
-      setMessage("A new invitation was created and queued for email.");
-      router.refresh();
     } catch {
-      setMessage("We could not reach the service. Please try again.");
-    } finally {
+      notifications.error("We could not reach the service. Please try again.", true);
       setBusyId(null);
+      return;
     }
+
+    if (!response.ok) {
+      notifications.error("The invitation could not be resent.");
+    } else {
+      notifications.success("A new invitation was created and queued for email.");
+      router.refresh();
+    }
+    setBusyId(null);
   }
 
   return (
     <div>
-      {message && (
-        <p aria-live="polite" className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
-          {message}
-        </p>
-      )}
-
       {invitations.length === 0 ? (
         <p className="text-sm leading-6 text-slate-600">
           No invitations have been issued.
@@ -201,6 +201,7 @@ export function ManageInvitations({
           </table>
         </div>
       )}
+      {dialog}
     </div>
   );
 }

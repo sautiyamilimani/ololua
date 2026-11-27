@@ -13,6 +13,27 @@ Correctness, PostgreSQL data integrity, security, maintainability, and plain-lan
 3. If the ERD, progress file, or a user request conflicts or is ambiguous, stop and ask the user. Do not invent a table, relationship, column, constraint, or business rule.
 4. Do not silently replace a supplied rule with a more convenient implementation.
 
+## Confirmed business rules
+
+- Each customer can have more than one meter, and each meter is billed separately.
+- Customer records and service accounts do not store property addresses or locations. A location description belongs to a meter assignment (the meter installation), so meters on one account can have different locations. The account-level `property_address` field is unnecessary and removed.
+- When migrating a legacy account location, copy it to the first active meter assignment; set the second and later active assignments to `to be specified`. If no active assignment exists, discard the legacy location and do not create an assignment.
+- A service-account suspension means water is disconnected. Suspension may occur for relocation or payment default.
+- When a customer moves out and a new customer moves in, the old meter is removed and a new meter is installed.
+- Meter replacement preserves the old meter and its unpaid balance. Do not transfer or silently clear the old unpaid balance.
+- Meters are read monthly, spread across several days.
+- Wrong meter readings may be corrected only by an admin.
+- Additional charges include connection fees, reconnection fees, and penalties. Amounts are not yet confirmed and must be resolved before implementation.
+- Bills are due 14 days after the bill date.
+- The app currently has no SMS service.
+- Customers may be created with an unverified email and without a portal account. A customer portal invitation can be issued immediately; accepting it verifies both the portal user and the customer email. Editing an email resets verification and automatically revokes any pending invitation; an active customer portal link must be revoked manually before the email can be changed.
+- Customers should receive payment reminders, payment confirmations, new-bill notices, and announcements such as outages and price changes.
+- The existing sample billing message format states: previous reading, current reading, consumption, bill amount, and the payment deadline with a disconnection warning.
+- SMS templates are stored as settings: `sms_payment_reminder_template`, `sms_payment_confirmation_template`, `sms_new_bill_template`, and `sms_announcement_template`.
+- SMS delivery infrastructure is not implemented; templates must not be represented as working SMS functionality.
+- Staff roles using the app are meter officers and administrators; the director is a management role.
+- Only the director and an admin may correct readings and payments or change water prices.
+
 ## Development stages
 
 Work strictly in this order:
@@ -117,6 +138,29 @@ After implementation tasks, run the smallest relevant checks:
 - Database verification: inspect live structure and constraints
 - Constraint tests: include both accepted and rejected examples
 
+### Mandatory UI screenshot verification
+
+Before every UI edit or new UI component is considered complete:
+
+- Start or use the reachable local Next.js development server.
+- Take screenshot evidence at 360px and 390px mobile widths.
+- Take at least one tablet-width screenshot where the layout changes around
+  768px or 1024px.
+- Take at least one desktop screenshot at 1440px.
+- Exercise every newly changed interactive state visible in the affected screen,
+  including loading, empty, error, success, open, expanded and disabled states
+  where applicable.
+- Inspect the screenshots for clipping, overlap, cramped controls, missing
+  spacing, horizontal overflow, inaccessible text contrast and unexpected
+  overlays.
+- Attach or explicitly reference the screenshots in the task result.
+- Record the exact URL, viewport sizes, tested states and actual pass/fail
+  outcome in `PROJECT_PROGRESS.md`.
+
+Do not mark a UI edit complete from code or type-check validation alone.
+If a screenshot test cannot be performed, report the blocker explicitly and
+leave the UI task incomplete.
+
 Do not hide or work around failures. Investigate the actual cause and fix the design or implementation.
 
 ## Communication format
@@ -153,7 +197,7 @@ Never write planned work as completed work.
 ## Current project state
 
 - Stage: 4 - Frontend (sign-in, invitation acceptance, password-reset request, reset, and authenticated password-change pages approved); Stages 1-3 have approved work.
-- The project has 28 ERD tables, 14 journaled migrations, a development seed script, and a trigger-backed singleton superadmin assignment; see `PROJECT_PROGRESS.md` for recorded verification and database details.
+- The project has 35 Drizzle tables and 28 journaled migrations. Migrations 0026-0028 have been reviewed and applied to the loopback development database only; 0028 relocates meter locations to assignments and removes service-account address/location columns.
 - An empty authenticated `/dashboard` and responsive dashboard navigation shell are approved. The navigation includes Accounts > Change password. Broader dashboard modules are not approved.
 - The first API endpoint, `GET /api/health`, is a process liveness check only and does not check database readiness.
 - The ERD copy is `olulua-erd`.
@@ -161,7 +205,7 @@ Never write planned work as completed work.
 - Stage 3 login/session/logout, invitation acceptance/issuance, password reset, authenticated current-password/email-OTP password change, and SMTP outbox delivery are implemented. The Stage 4 sign-in, invitation acceptance, password-reset request, reset, and authenticated password-change pages are implemented; broader frontend and PWA work is not approved. Outbox sending is explicitly disabled by default.
 - A general account settings page and its navigation are deferred by the user. Do not add them until separately approved; keep the protected change-password route available without linking it from sign-in.
 - Confirmed invitation rules, one-time development superadmin bootstrap, and implementation boundaries are documented in `docs/api/invitations.md`.
-- Do not expand frontend work beyond the approved sign-in, invitation acceptance, password-reset request, reset, and password-change pages, or begin PWA work, without further user approval.
+- Do not expand frontend work beyond explicitly approved sign-in, invitation, password-reset, password-change, customer workspace, service-account, meter, and customer-email-verification flows, or begin PWA work, without further user approval.
 - For a fresh Copilot session/account, read this file, `PROJECT_PROGRESS.md`, and the relevant API contract before acting. The current pushed baseline includes the Stage 3 invitation/password-reset/SMTP implementation (`d6309942c0a030c1179d12fbd6cd4078b7a072db`), invitation/reset pages (`5f8461b9ea8b55fd5765440753970de16f2ed200`), and sign-in page (`77004cf90a1aa848519d542323e5ee26f1876460`). Consult `PROJECT_PROGRESS.md` for newer uncommitted work.
 - One explicitly approved local-development superadmin setup email was sent after the user confirmed sender review; no other queued application email was sent. For future sends, require a reachable `APP_ORIGIN` and sender review. The separate Gmail smoke test landed in Spam; SMTP authentication is not proof of inbox deliverability.
 

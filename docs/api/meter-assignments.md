@@ -15,9 +15,12 @@ CSRF headers, and the exact application origin.
 ```json
 {
   "meterId": "uuid",
-  "accountId": "uuid"
+  "accountId": "uuid",
+  "locationDescription": "Near the water tank"
 }
 ```
+
+`locationDescription` is optional and accepts a string of up to 500 characters or `null`. It describes this meter installation, not the service account or service variant.
 
 The meter must exist and be `ACTIVE`. The service account must exist and be
 `ACTIVE`. The customer must not be trashed. A meter may have only one active
@@ -27,6 +30,20 @@ through the existing transactional meter-assignment service.
 Success returns `201`. Errors include `404 NOT_FOUND` for missing meter/account
 records and `409 METER_ASSIGNMENT_CONFLICT` for inactive records or an active
 duplicate assignment.
+
+## Update an active assignment's location
+
+`PATCH /api/meter-assignments/{assignmentId}`
+
+```json
+{
+  "locationDescription": "Near the water tank"
+}
+```
+
+The field is required and accepts a string of up to 500 characters or `null`
+to clear it. Only active assignments can be updated. The change is audited
+with the old and new values.
 
 ## Remove a meter assignment
 

@@ -2,13 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 type StaffAccountStatus = "active" | "suspended";
-
-type StatusMessage =
-  | { kind: "success"; text: string }
-  | { kind: "error"; text: string }
-  | null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,8 +54,9 @@ export function StaffAccountStatusControl({
   status: StaffAccountStatus;
 }) {
   const router = useRouter();
+  const notifications = useNotifications();
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<StatusMessage>(null);
+  const { confirm, dialog } = useConfirmationDialog();
   const nextStatus: StaffAccountStatus =
     status === "active" ? "suspended" : "active";
   const isSuspending = nextStatus === "suspended";
@@ -68,12 +66,18 @@ export function StaffAccountStatusControl({
       ? `Suspend ${fullName}? All of their active sessions will be revoked.`
       : `Reactivate ${fullName}? They will need to sign in again.`;
 
-    if (!window.confirm(confirmation) || submitting) {
+    if (submitting) {
       return;
     }
+    const confirmed = await confirm({
+      title: isSuspending ? "Suspend this staff account?" : "Reactivate this account?",
+      description: confirmation,
+      confirmLabel: isSuspending ? "Suspend account" : "Reactivate account",
+      tone: isSuspending ? "danger" : "primary",
+    });
+    if (!confirmed) return;
 
     setSubmitting(true);
-    setMessage(null);
 
     try {
       const response = await fetch(`/api/admin/users/${userId}/status`, {
@@ -93,18 +97,12 @@ export function StaffAccountStatusControl({
       try {
         payload = await response.json();
       } catch {
-        setMessage({
-          kind: "error",
-          text: "We could not verify the response. Please try again.",
-        });
+        notifications.error("We could not verify the response. Please try again.");
         return;
       }
 
       if (!response.ok) {
-        setMessage({
-          kind: "error",
-          text: getErrorMessage(getErrorCode(payload)),
-        });
+        notifications.error(getErrorMessage(getErrorCode(payload)));
         return;
       }
 
@@ -115,25 +113,21 @@ export function StaffAccountStatusControl({
         payload.data.status !== nextStatus ||
         payload.data.notificationQueued !== true
       ) {
-        setMessage({
-          kind: "error",
-          text: "We could not verify the response. Please try again.",
-        });
+        notifications.error("We could not verify the response. Please try again.");
         return;
       }
 
-      setMessage({
-        kind: "success",
-        text: isSuspending
+      notifications.success(
+        isSuspending
           ? "The account was suspended, active sessions were revoked, and an email notification was queued."
           : "The account was reactivated, an email notification was queued, and the user must sign in again.",
-      });
+      );
       router.refresh();
     } catch {
-      setMessage({
-        kind: "error",
-        text: "We could not reach the service. Check your connection and try again.",
-      });
+      notifications.error(
+        "We could not reach the service. Check your connection and try again.",
+        true,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -147,20 +141,6 @@ export function StaffAccountStatusControl({
           ? "Suspending this account revokes all active sessions."
           : "Reactivation does not restore previous sessions; the user must sign in again."}
       </p>
-
-      {message && (
-        <p
-          aria-live="polite"
-          className={`mt-4 rounded-lg border px-3 py-2.5 text-sm ${
-            message.kind === "error"
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-teal-200 bg-teal-50 text-teal-800"
-          }`}
-          role={message.kind === "error" ? "alert" : "status"}
-        >
-          {message.text}
-        </p>
-      )}
 
       <button
         className={`mt-4 min-h-11 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
@@ -178,6 +158,7 @@ export function StaffAccountStatusControl({
             ? "Suspend account"
             : "Reactivate account"}
       </button>
+      {dialog}
     </div>
   );
 }

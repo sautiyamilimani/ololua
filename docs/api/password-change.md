@@ -28,6 +28,7 @@ Email sending must be enabled and permitted for the configured database before a
 
 - Generate a uniformly random six-digit code, including leading zeroes.
 - Expire the code after 10 minutes and allow it to be used once.
+- Send the code in both a plain-text email and an HTML email that displays the six digits in separate large cells. The password-change page also uses six separate digit fields, supports normal paste, and provides a user-clicked “Paste code” button when browser clipboard access is available.
 - Store only a keyed HMAC of the code in `email_verification_tokens.token_hash`. The HMAC uses a password-change-specific context and the configured email-outbox encryption key; a plain hash is insufficient for a six-digit value.
 - Put the raw code only in the encrypted outbox secret payload.
 - A new request invalidates earlier password-change challenges and any still-queued messages carrying their codes.

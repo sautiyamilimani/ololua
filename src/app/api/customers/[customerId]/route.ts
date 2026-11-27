@@ -71,8 +71,7 @@ export async function GET(
         fullName: customers.fullName,
         phone: customers.phone,
         email: customers.email,
-        physicalAddress: customers.physicalAddress,
-        locationDescription: customers.locationDescription,
+        emailVerifiedAt: customers.emailVerifiedAt,
         status: customers.status,
         notes: customers.notes,
         createdAt: customers.createdAt,
@@ -89,6 +88,7 @@ export async function GET(
     return successResponse({
       customer: {
         ...customer,
+        emailVerifiedAt: customer.emailVerifiedAt?.toISOString() ?? null,
         createdAt: customer.createdAt.toISOString(),
         updatedAt: customer.updatedAt.toISOString(),
       },
@@ -149,8 +149,8 @@ export async function PATCH(
     if (result.kind === "email-change-restricted") {
       return errorResponse(
         409,
-        "CUSTOMER_CONFLICT",
-        "Resolve the customer's active portal link or pending invitation before changing their email.",
+        "CUSTOMER_EMAIL_CHANGE_RESTRICTED",
+        "Revoke the customer's active portal link before changing their email.",
       );
     }
     if (result.kind !== "success") {
@@ -161,6 +161,8 @@ export async function PATCH(
       customer: {
         id: result.customerId,
         updatedAt: result.updatedAt?.toISOString(),
+        emailChanged: result.emailChanged ?? false,
+        pendingInvitationRevoked: result.pendingInvitationRevoked ?? false,
       },
     });
     setSessionCookie(response, sessionToken, result.sessionPolicy);

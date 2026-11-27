@@ -114,7 +114,6 @@ async function createFixture(sameCustomer: boolean) {
       customerId,
       serviceVariantId: variant.id,
       zoneId: null,
-      propertyAddress: "Source account",
       status: "ACTIVE",
     },
     {
@@ -123,7 +122,6 @@ async function createFixture(sameCustomer: boolean) {
       customerId: secondCustomerId,
       serviceVariantId: variant.id,
       zoneId: null,
-      propertyAddress: "Destination account",
       status: "ACTIVE",
     },
   ]);

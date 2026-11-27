@@ -1,15 +1,18 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterEach, test } from "node:test";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   auditLogs,
+  customerEmailVerificationTokens,
   customerMeterAccounts,
   customerUserAccess,
   customers,
+  emailOutbox,
   invitations,
+  rateLimits,
   roles,
   serviceVariants,
   sessions,
@@ -23,16 +26,29 @@ import {
   createCustomer,
   deleteCustomer,
   linkStaffCustomerAccess,
+  requestCustomerEmailVerification,
   revokeStaffCustomerAccess,
   updateCustomer,
+  verifyCustomerEmail,
 } from "./management";
 import type { CreateCustomerInput } from "./input";
+import { decryptSecretPayload } from "@/lib/email/secret-payload";
+
+process.env.EMAIL_OUTBOX_ENCRYPTION_KEY ??= Buffer.alloc(32, 0x5a).toString("base64");
 
 const fixtureUserIds = new Set<string>();
 const fixtureCustomerIds = new Set<string>();
 const fixtureCustomerAccountIds = new Set<string>();
 const fixtureInvitationIds = new Set<string>();
 const fixtureStaffCustomerAccessIds = new Set<string>();
+const fixtureRateLimitKeys = new Set<string>();
+
+function trackRateLimitBucket(action: string, identity: string): void {
+  const digest = createHash("sha256")
+    .update(`${action}:${identity}`)
+    .digest("hex");
+  fixtureRateLimitKeys.add(`${action}:${digest}`);
+}
 
 function assertLocalDatabase(): void {
   const databaseUrl = process.env.DATABASE_URL;
@@ -109,8 +125,6 @@ function newCustomerInput(email: string): CreateCustomerInput {
     fullName: "Customer Management Target",
     phone: "0700000000",
     email,
-    physicalAddress: null,
-    locationDescription: null,
     notes: null,
   };
 }
@@ -189,7 +203,6 @@ async function createServiceAccount(customerId: string): Promise<void> {
     accountNumber: `TEST-${randomUUID().replace(/-/gu, "").slice(0, 20)}`,
     customerId,
     serviceVariantId: variant.id,
-    propertyAddress: "Customer deletion integration fixture",
     status: "ACTIVE",
   });
 }
@@ -201,10 +214,38 @@ async function cleanupFixtures(): Promise<void> {
       .delete(auditLogs)
       .where(
         and(
-          eq(auditLogs.action, "customer.delete"),
+          inArray(auditLogs.action, [
+            "customer.delete",
+            "customer.email_changed",
+            "customer.email_verification_requested",
+            "customer.email_verified",
+          ]),
           inArray(auditLogs.entityId, customerIds),
         ),
       );
+    const verificationTokens = await db
+      .select({ id: customerEmailVerificationTokens.id })
+      .from(customerEmailVerificationTokens)
+      .where(inArray(customerEmailVerificationTokens.customerId, customerIds));
+    const tokenIds = verificationTokens.map((token) => token.id);
+    if (tokenIds.length > 0) {
+      await db
+        .delete(emailOutbox)
+        .where(
+          inArray(
+            emailOutbox.idempotencyKey,
+            tokenIds.map((id) => `customer-email-verification:${id}`),
+          ),
+        );
+      await db
+        .delete(customerEmailVerificationTokens)
+        .where(inArray(customerEmailVerificationTokens.id, tokenIds));
+    }
+  }
+  if (fixtureRateLimitKeys.size > 0) {
+    await db
+      .delete(rateLimits)
+      .where(inArray(rateLimits.bucketKey, [...fixtureRateLimitKeys]));
   }
   if (fixtureStaffCustomerAccessIds.size > 0) {
     await db
@@ -243,6 +284,14 @@ async function cleanupFixtures(): Promise<void> {
 
   if (fixtureInvitationIds.size > 0) {
     await db
+      .delete(emailOutbox)
+      .where(
+        inArray(
+          emailOutbox.idempotencyKey,
+          [...fixtureInvitationIds].map((id) => `invitation:${id}`),
+        ),
+      );
+    await db
       .delete(invitations)
       .where(inArray(invitations.id, [...fixtureInvitationIds]));
   }
@@ -257,6 +306,7 @@ async function cleanupFixtures(): Promise<void> {
   fixtureInvitationIds.clear();
   fixtureStaffCustomerAccessIds.clear();
   fixtureUserIds.clear();
+  fixtureRateLimitKeys.clear();
 }
 
 afterEach(cleanupFixtures);
@@ -278,7 +328,7 @@ test("customer management creates numbered records and updates allowed fields", 
   const updatedEmail = `updated-${randomUUID()}@example.test`;
   const updateResult = await updateCustomer(actor.token, result.customerId, {
     email: updatedEmail,
-    physicalAddress: "Updated address",
+    notes: "Updated customer note",
     status: "inactive",
   });
   assert.equal(updateResult.kind, "success");
@@ -287,7 +337,8 @@ test("customer management creates numbered records and updates allowed fields", 
     .select({
       customerNumber: customers.customerNumber,
       email: customers.email,
-      physicalAddress: customers.physicalAddress,
+      emailVerifiedAt: customers.emailVerifiedAt,
+      notes: customers.notes,
       status: customers.status,
     })
     .from(customers)
@@ -296,7 +347,8 @@ test("customer management creates numbered records and updates allowed fields", 
 
   assert.equal(customer?.customerNumber, result.customerNumber);
   assert.equal(customer?.email, updatedEmail);
-  assert.equal(customer?.physicalAddress, "Updated address");
+  assert.equal(customer?.emailVerifiedAt, null);
+  assert.equal(customer?.notes, "Updated customer note");
   assert.equal(customer?.status, "inactive");
 
   const otherCustomerId = await createManagedCustomer(
@@ -732,7 +784,7 @@ test("customer deletion requires customers.manage", async () => {
   assert.deepEqual(result, { kind: "forbidden" });
 });
 
-test("customer email cannot change with an active portal link or pending invitation", async () => {
+test("customer email cannot change with an active portal link", async () => {
   const actor = await createStaffSession("admin");
   const linkedCustomerId = await createManagedCustomer(
     actor.token,
@@ -781,9 +833,135 @@ test("customer email cannot change with an active portal link or pending invitat
     createdAt: now,
     expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
   });
-
-  const pendingResult = await updateCustomer(actor.token, pendingCustomerId, {
-    email: `pending-update-${randomUUID()}@example.test`,
+  await db.insert(emailOutbox).values({
+    recipientUserId: pendingPortalUserId,
+    recipientEmail: pendingEmail,
+    templateKey: "invitation",
+    templateData: { fullName: "Customer Portal Test" },
+    status: "queued",
+    attempts: 0,
+    maxAttempts: 5,
+    nextAttemptAt: now,
+    idempotencyKey: `invitation:${pendingInvitationId}`,
+    createdAt: now,
+    updatedAt: now,
   });
-  assert.deepEqual(pendingResult, { kind: "email-change-restricted" });
+
+  const updatedEmail = `pending-update-${randomUUID()}@example.test`;
+  const pendingResult = await updateCustomer(actor.token, pendingCustomerId, {
+    email: updatedEmail,
+  });
+  assert.equal(pendingResult.kind, "success");
+  if (pendingResult.kind !== "success") {
+    throw new Error("Expected changing an invited customer's email to succeed.");
+  }
+  assert.equal(pendingResult.pendingInvitationRevoked, true);
+
+  const [revokedInvitation] = await db
+    .select({ status: invitations.status })
+    .from(invitations)
+    .where(eq(invitations.id, pendingInvitationId))
+    .limit(1);
+  assert.equal(revokedInvitation?.status, "revoked");
+  const [revokedEmail] = await db
+    .select({ status: emailOutbox.status })
+    .from(emailOutbox)
+    .where(eq(emailOutbox.idempotencyKey, `invitation:${pendingInvitationId}`))
+    .limit(1);
+  assert.equal(revokedEmail?.status, "failed");
+
+  const [updatedUser] = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, pendingPortalUserId))
+    .limit(1);
+  assert.equal(updatedUser?.email, updatedEmail);
+
+  const [updatedCustomer] = await db
+    .select({
+      email: customers.email,
+      emailVerifiedAt: customers.emailVerifiedAt,
+    })
+    .from(customers)
+    .where(eq(customers.id, pendingCustomerId))
+    .limit(1);
+  assert.equal(updatedCustomer?.email, updatedEmail);
+  assert.equal(updatedCustomer?.emailVerifiedAt, null);
+});
+
+test("customer email verification queues an OTP and verifies only the current address", async () => {
+  const actor = await createStaffSession("admin");
+  const customerId = await createManagedCustomer(
+    actor.token,
+    `verify-${randomUUID()}@example.test`,
+  );
+  const ipAddress = `customer-email-verification-${randomUUID()}`;
+  trackRateLimitBucket("customer_email_verification_account", customerId);
+  trackRateLimitBucket("customer_email_verification_request_ip", ipAddress);
+  trackRateLimitBucket("customer_email_verification_verify_ip", ipAddress);
+
+  const requestResult = await requestCustomerEmailVerification(
+    actor.token,
+    customerId,
+    ipAddress,
+  );
+  assert.equal(requestResult.kind, "queued");
+
+  const [challenge] = await db
+    .select({
+      id: customerEmailVerificationTokens.id,
+      tokenHash: customerEmailVerificationTokens.tokenHash,
+    })
+    .from(customerEmailVerificationTokens)
+    .where(eq(customerEmailVerificationTokens.customerId, customerId))
+    .limit(1);
+  assert.ok(challenge);
+  trackRateLimitBucket(
+    "customer_email_verification_attempt",
+    challenge.id,
+  );
+
+  const [queuedEmail] = await db
+    .select({
+      secretPayloadEncrypted: emailOutbox.secretPayloadEncrypted,
+      status: emailOutbox.status,
+    })
+    .from(emailOutbox)
+    .where(
+      eq(
+        emailOutbox.idempotencyKey,
+        `customer-email-verification:${challenge.id}`,
+      ),
+    )
+    .limit(1);
+  assert.equal(queuedEmail?.status, "queued");
+  assert.ok(queuedEmail?.secretPayloadEncrypted);
+  const secret = JSON.parse(
+    decryptSecretPayload(queuedEmail.secretPayloadEncrypted),
+  ) as { otp: string };
+  assert.match(secret.otp, /^\d{6}$/u);
+
+  const wrongOtp = secret.otp === "000000" ? "000001" : "000000";
+  const invalidResult = await verifyCustomerEmail(
+    actor.token,
+    customerId,
+    wrongOtp,
+    ipAddress,
+  );
+  assert.deepEqual(invalidResult, { kind: "invalid" });
+
+  const verifiedResult = await verifyCustomerEmail(
+    actor.token,
+    customerId,
+    secret.otp,
+    ipAddress,
+  );
+  assert.equal(verifiedResult.kind, "verified");
+
+  const [verifiedCustomer] = await db
+    .select({ emailVerifiedAt: customers.emailVerifiedAt })
+    .from(customers)
+    .where(eq(customers.id, customerId))
+    .limit(1);
+  assert.ok(verifiedCustomer?.emailVerifiedAt);
 });

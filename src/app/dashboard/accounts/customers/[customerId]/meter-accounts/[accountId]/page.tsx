@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { Breadcrumbs } from "@/components/navigation/breadcrumbs";
+import { ServiceAccountMeterControl } from "@/components/meters/service-account-meter-control";
 import {
   customerMeterAccounts,
   customers,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/db/schema";
 import { getActiveSession } from "@/lib/auth/session";
 import {
+  CUSTOMER_MANAGE_PERMISSION,
   CUSTOMER_READ_PERMISSION,
   userHasPermission,
 } from "@/lib/auth/permissions";
@@ -63,8 +65,6 @@ export default async function CustomerMeterAccountDetailsPage({
       id: customerMeterAccounts.id,
       accountNumber: customerMeterAccounts.accountNumber,
       customerId: customerMeterAccounts.customerId,
-      propertyAddress: customerMeterAccounts.propertyAddress,
-      locationDescription: customerMeterAccounts.locationDescription,
       notes: customerMeterAccounts.notes,
       status: customerMeterAccounts.status,
       variantName: serviceVariants.variantName,
@@ -91,9 +91,11 @@ export default async function CustomerMeterAccountDetailsPage({
   const assignments = await db
     .select({
       id: meterAssignments.id,
+      meterId: meterAssignments.meterId,
       serialNumber: meters.serialNumber,
       meterStatus: meters.status,
       initialReading: meterAssignments.initialReading,
+      locationDescription: meterAssignments.locationDescription,
       assignedAt: meterAssignments.assignedAt,
       removedAt: meterAssignments.removedAt,
     })
@@ -101,15 +103,47 @@ export default async function CustomerMeterAccountDetailsPage({
     .innerJoin(meters, eq(meterAssignments.meterId, meters.id))
     .where(eq(meterAssignments.customerMeterAccountId, accountId));
 
+  const canManage =
+    await userHasPermission(session.user.id, CUSTOMER_MANAGE_PERMISSION);
+  const activeAssignments = assignments.filter(
+    (assignment) => assignment.removedAt === null,
+  );
+  const activeAssignedMeterIds = await db
+    .select({ meterId: meterAssignments.meterId })
+    .from(meterAssignments)
+    .where(isNull(meterAssignments.removedAt));
+  const assignedMeterIdSet = new Set(
+    activeAssignedMeterIds.map((assignment) => assignment.meterId),
+  );
+  const availableMeters =
+    canManage
+      ? (await db
+          .select({
+            id: meters.id,
+            serialNumber: meters.serialNumber,
+          })
+          .from(meters)
+          .where(eq(meters.status, "ACTIVE"))
+          .orderBy(meters.serialNumber)).filter(
+            (meter) => !assignedMeterIdSet.has(meter.id),
+          )
+      : [];
+
   return (
-    <section className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <Link
-        className="text-sm font-semibold text-teal-900 underline-offset-4 hover:underline"
-        href={`/dashboard/accounts/customers/${customerId}`}
-      >
-        Back to customer
-      </Link>
-      <header className="mb-8 mt-6">
+    <section className="mx-auto w-full max-w-3xl space-y-6">
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Customers", href: "/dashboard/accounts/customers" },
+          {
+            label: customer?.fullName ?? "Customer",
+            href: `/dashboard/accounts/customers/${customerId}`,
+          },
+          { label: account.accountNumber },
+        ]}
+      />
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <header className="mb-8">
         <p className="mb-2 text-sm font-semibold text-teal-800">Customer accounts</p>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
           {account.accountNumber}
@@ -133,14 +167,6 @@ export default async function CustomerMeterAccountDetailsPage({
           <dd className="text-sm text-slate-900">{account.zoneName ?? "Not assigned"}</dd>
         </div>
         <div className="grid gap-1 py-4 sm:grid-cols-[12rem_1fr] sm:gap-4">
-          <dt className="text-sm font-medium text-slate-500">Property address</dt>
-          <dd className="text-sm text-slate-900">{account.propertyAddress}</dd>
-        </div>
-        <div className="grid gap-1 py-4 sm:grid-cols-[12rem_1fr] sm:gap-4">
-          <dt className="text-sm font-medium text-slate-500">Location</dt>
-          <dd className="text-sm text-slate-900">{account.locationDescription ?? "Not recorded"}</dd>
-        </div>
-        <div className="grid gap-1 py-4 sm:grid-cols-[12rem_1fr] sm:gap-4">
           <dt className="text-sm font-medium text-slate-500">Notes</dt>
           <dd className="whitespace-pre-wrap text-sm text-slate-900">{account.notes ?? "No notes"}</dd>
         </div>
@@ -157,6 +183,7 @@ export default async function CustomerMeterAccountDetailsPage({
               assignments.map((assignment) => (
                 <p key={assignment.id}>
                   {assignment.serialNumber} · {assignment.removedAt ? "Removed" : "Active"} ·
+                  {" "}{assignment.locationDescription ?? "Location not specified"} ·
                   {" "}opening {assignment.initialReading}
                 </p>
               ))
@@ -168,6 +195,21 @@ export default async function CustomerMeterAccountDetailsPage({
           <dd className="text-sm text-slate-900">{formatDate(account.updatedAt)}</dd>
         </div>
       </dl>
+      <ServiceAccountMeterControl
+        accountId={account.id}
+        accountNumber={account.accountNumber}
+        accountStatus={account.status as "ACTIVE" | "SUSPENDED" | "CLOSED"}
+        activeAssignments={activeAssignments.map((assignment) => ({
+          id: assignment.id,
+          meterId: assignment.meterId,
+          serialNumber: assignment.serialNumber,
+          assignedAt: formatDate(assignment.assignedAt),
+          locationDescription: assignment.locationDescription,
+        }))}
+        availableMeters={availableMeters}
+        canManage={canManage}
+      />
+      </div>
     </section>
   );
 }

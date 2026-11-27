@@ -2,7 +2,7 @@ import "dotenv/config";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { afterEach, test } from "node:test";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   customerMeterAccounts,
@@ -49,6 +49,21 @@ async function findActiveVariant(): Promise<string> {
   return variant.id;
 }
 
+async function findDomesticVariant(): Promise<string> {
+  const [variant] = await db
+    .select({ id: serviceVariants.id })
+    .from(serviceVariants)
+    .where(
+      and(
+        eq(serviceVariants.status, "ACTIVE"),
+        sql`upper(${serviceVariants.variantCode}) like '%DOMESTIC%'`,
+      ),
+    )
+    .limit(1);
+  assert.ok(variant, "The development database must contain an active Domestic Water variant.");
+  return variant.id;
+}
+
 afterEach(async () => {
   if (fixtureAccountIds.size > 0) {
     await db
@@ -73,8 +88,6 @@ test("account creation generates a numbered active account for an active custome
     customerId,
     serviceVariantId,
     zoneId: null,
-    propertyAddress: "  Test plot 12 ",
-    locationDescription: null,
     notes: null,
   });
 
@@ -89,7 +102,6 @@ test("account creation generates a numbered active account for an active custome
     .select({
       customerId: customerMeterAccounts.customerId,
       status: customerMeterAccounts.status,
-      propertyAddress: customerMeterAccounts.propertyAddress,
     })
     .from(customerMeterAccounts)
     .where(eq(customerMeterAccounts.id, result.accountId))
@@ -97,7 +109,6 @@ test("account creation generates a numbered active account for an active custome
 
   assert.equal(account?.customerId, customerId);
   assert.equal(account?.status, "ACTIVE");
-  assert.equal(account?.propertyAddress, "Test plot 12");
 });
 
 test("account creation rejects inactive customers", async () => {
@@ -109,12 +120,70 @@ test("account creation rejects inactive customers", async () => {
     customerId,
     serviceVariantId,
     zoneId: null,
-    propertyAddress: "Test plot",
-    locationDescription: null,
     notes: null,
   });
 
   assert.deepEqual(result, { kind: "customer-inactive" });
+});
+
+test("a customer can have only one non-closed Domestic Water account", async () => {
+  assertLocalDatabase();
+  const customerId = await createFixtureCustomer();
+  const serviceVariantId = await findDomesticVariant();
+
+  const first = await createCustomerMeterAccount({
+    customerId,
+    serviceVariantId,
+    zoneId: null,
+    notes: null,
+  });
+  assert.equal(first.kind, "success");
+  if (first.kind !== "success") {
+    throw new Error("Expected the first Domestic Water account to be created.");
+  }
+  fixtureAccountIds.add(first.accountId);
+
+  const duplicate = await createCustomerMeterAccount({
+    customerId,
+    serviceVariantId,
+    zoneId: null,
+    notes: null,
+  });
+  assert.deepEqual(duplicate, { kind: "domestic-account-exists" });
+});
+
+test("a closed Domestic Water account does not block a new account", async () => {
+  assertLocalDatabase();
+  const customerId = await createFixtureCustomer();
+  const serviceVariantId = await findDomesticVariant();
+
+  const first = await createCustomerMeterAccount({
+    customerId,
+    serviceVariantId,
+    zoneId: null,
+    notes: null,
+  });
+  assert.equal(first.kind, "success");
+  if (first.kind !== "success") {
+    throw new Error("Expected the first Domestic Water account to be created.");
+  }
+  fixtureAccountIds.add(first.accountId);
+
+  await db
+    .update(customerMeterAccounts)
+    .set({ status: "CLOSED" })
+    .where(eq(customerMeterAccounts.id, first.accountId));
+
+  const second = await createCustomerMeterAccount({
+    customerId,
+    serviceVariantId,
+    zoneId: null,
+    notes: null,
+  });
+  assert.equal(second.kind, "success");
+  if (second.kind === "success") {
+    fixtureAccountIds.add(second.accountId);
+  }
 });
 
 test("account number sequence advances by one and gaps remain allowed", async () => {

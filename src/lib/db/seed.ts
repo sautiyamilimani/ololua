@@ -29,11 +29,40 @@ const pool = new Pool({ connectionString: localConnectionString, ssl: false });
 const db = drizzle(pool, { schema });
 
 async function seed() {
-  await db.insert(settings).values({
-    key: "invoice_due_days",
-    value: "30",
-    description: "Number of calendar days from invoice issue to due date",
-  }).onConflictDoNothing();
+  await db.insert(settings).values([
+    {
+      key: "invoice_due_days",
+      value: "14",
+      description: "Number of calendar days from invoice issue to due date",
+    },
+    {
+      key: "sms_payment_reminder_template",
+      value: "Dear {customerName}, your meter {meterNumber} has an outstanding balance of KES {amountDue}. Please pay on or before {dueDate} to avoid disconnection.",
+      description: "SMS template for payment reminders",
+    },
+    {
+      key: "sms_payment_confirmation_template",
+      value: "Dear {customerName}, we received KES {amountPaid} for meter {meterNumber}. Reference: {paymentReference}. Outstanding balance: KES {balanceDue}. Thank you.",
+      description: "SMS template for payment confirmations",
+    },
+    {
+      key: "sms_new_bill_template",
+      value: "Previous reading {previousReading}; Current reading {currentReading}; Consumption {consumption}; Bill {billAmount}; Pay on or before {dueDate} to avoid disconnection.",
+      description: "SMS template for newly issued bills",
+    },
+    {
+      key: "sms_announcement_template",
+      value: "Ololua Water Services notice: {announcementText}",
+      description: "SMS template for outages, price changes, and other announcements",
+    },
+  ]).onConflictDoNothing();
+  await db
+    .update(settings)
+    .set({
+      value: "14",
+      description: "Number of calendar days from invoice issue to due date",
+    })
+    .where(eq(settings.key, "invoice_due_days"));
   await db.insert(roles).values([
     { roleKey: "admin", displayName: "Administrator", isSystemRole: true },
     { roleKey: "customer", displayName: "Customer", isSystemRole: true },
@@ -161,8 +190,6 @@ async function seed() {
     fullName: "Development Customer",
     phone: "0700000000",
     email: "dev.customer@example.test",
-    physicalAddress: "Ololua",
-    locationDescription: "Development seed record",
     status: "active",
   }).onConflictDoNothing();
 
@@ -176,7 +203,6 @@ async function seed() {
     customerId: customer.id,
     serviceVariantId: variant.id,
     zoneId: zone.id,
-    propertyAddress: "Ololua Central",
     status: "ACTIVE",
   }).onConflictDoNothing();
 

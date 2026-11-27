@@ -1,10 +1,12 @@
-import { randomUUID } from "node:crypto";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   auditLogs,
+  customerEmailVerificationTokens,
   customerUserAccess,
   customers,
+  emailOutbox,
   invitations,
   permissions,
   rolePermissions,
@@ -15,10 +17,16 @@ import {
   users,
 } from "@/lib/db/schema";
 import {
+  encryptSecretPayload,
+  hashSecretValue,
+} from "@/lib/email/secret-payload";
+import {
   CUSTOMER_MANAGE_PERMISSION,
 } from "@/lib/auth/permissions";
 import { getSessionPolicy, type SessionPolicy } from "@/lib/auth/policy";
+import { consumeRateLimitBucket } from "@/lib/auth/rate-limit";
 import { hashOpaqueToken } from "@/lib/auth/token";
+import { revokeQueuedInvitationEmail } from "@/lib/auth/invitation-email";
 import type {
   CreateCustomerInput,
   UpdateCustomerInput,
@@ -42,6 +50,8 @@ type CustomerMutationResult =
       customerNumber?: string;
       updatedAt?: Date;
       status?: "active" | "inactive";
+      emailChanged?: boolean;
+      pendingInvitationRevoked?: boolean;
       sessionPolicy: SessionPolicy;
     }
   | { kind: "unauthenticated" }
@@ -49,6 +59,16 @@ type CustomerMutationResult =
   | { kind: "not-found" }
   | { kind: "conflict" }
   | { kind: "email-change-restricted" };
+
+type CustomerEmailVerificationResult =
+  | { kind: "queued"; sessionPolicy: SessionPolicy }
+  | { kind: "verified"; sessionPolicy: SessionPolicy }
+  | { kind: "already-verified"; sessionPolicy: SessionPolicy }
+  | { kind: "unauthenticated" }
+  | { kind: "forbidden" }
+  | { kind: "not-found" }
+  | { kind: "invalid" }
+  | { kind: "rate-limited"; retryAfterSeconds: number };
 
 type StaffCustomerAccessMutationResult =
   | {
@@ -65,20 +85,102 @@ type StaffCustomerAccessMutationResult =
   | { kind: "not-linked" };
 
 function isCustomerUniqueConflict(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("cause" in error)) {
+  let candidate: unknown = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (typeof candidate !== "object" || candidate === null) {
+      return false;
+    }
+    if (
+      "code" in candidate &&
+      candidate.code === "23505" &&
+      "constraint" in candidate &&
+      (candidate.constraint === "customers_email_lower_unique" ||
+        candidate.constraint === "users_email_lower_unique" ||
+        candidate.constraint === "customers_customer_number_unique")
+    ) {
+      return true;
+    }
+    candidate = "cause" in candidate ? candidate.cause : null;
+  }
+  return false;
+}
+
+const CUSTOMER_EMAIL_OTP_CONTEXT = "customer-email-verification-otp:v1";
+const CUSTOMER_EMAIL_OTP_LIFETIME_MS = 10 * 60 * 1000;
+const CUSTOMER_EMAIL_OTP_ATTEMPT_LIMIT = 5;
+
+function createCustomerEmailOtp(): string {
+  return randomInt(0, 1_000_000).toString().padStart(6, "0");
+}
+
+function getCustomerEmailOtpHash(
+  customerId: string,
+  tokenId: string,
+  otp: string,
+): string {
+  return hashSecretValue(
+    CUSTOMER_EMAIL_OTP_CONTEXT,
+    `${customerId}:${tokenId}:${otp}`,
+  );
+}
+
+function matchesCustomerEmailOtpHash(
+  actualHash: string,
+  expectedHash: string,
+): boolean {
+  if (
+    !/^[0-9a-f]{64}$/u.test(actualHash) ||
+    !/^[0-9a-f]{64}$/u.test(expectedHash)
+  ) {
     return false;
   }
 
-  const cause = error.cause;
-  return (
-    typeof cause === "object" &&
-    cause !== null &&
-    "code" in cause &&
-    cause.code === "23505" &&
-    "constraint" in cause &&
-    (cause.constraint === "customers_email_lower_unique" ||
-      cause.constraint === "customers_customer_number_unique")
+  return timingSafeEqual(
+    Buffer.from(actualHash, "hex"),
+    Buffer.from(expectedHash, "hex"),
   );
+}
+
+async function invalidateCustomerEmailVerificationTokens(
+  transaction: DatabaseTransaction,
+  customerId: string,
+  now: Date,
+): Promise<void> {
+  const activeTokens = await transaction
+    .select({ id: customerEmailVerificationTokens.id })
+    .from(customerEmailVerificationTokens)
+    .where(
+      and(
+        eq(customerEmailVerificationTokens.customerId, customerId),
+        isNull(customerEmailVerificationTokens.invalidatedAt),
+      ),
+    );
+  const tokenIds = activeTokens.map((token) => token.id);
+
+  if (tokenIds.length === 0) {
+    return;
+  }
+
+  await transaction
+    .update(customerEmailVerificationTokens)
+    .set({ invalidatedAt: now })
+    .where(inArray(customerEmailVerificationTokens.id, tokenIds));
+  await transaction
+    .update(emailOutbox)
+    .set({
+      status: "failed",
+      lastError: "Customer email verification code was replaced.",
+      updatedAt: now,
+    })
+    .where(
+      and(
+        inArray(
+          emailOutbox.idempotencyKey,
+          tokenIds.map((id) => `customer-email-verification:${id}`),
+        ),
+        eq(emailOutbox.status, "queued"),
+      ),
+    );
 }
 
 function isStaffCustomerAccessUniqueConflict(error: unknown): boolean {
@@ -223,8 +325,6 @@ export async function createCustomer(
         fullName: input.fullName,
         phone: input.phone,
         email: input.email,
-        physicalAddress: input.physicalAddress,
-        locationDescription: input.locationDescription,
         notes: input.notes,
         status: "active",
         createdAt: now,
@@ -285,10 +385,11 @@ export async function updateCustomer(
         return { kind: "not-found" };
       }
 
-      if (
+      const emailChanged =
         input.email !== undefined &&
-        input.email.toLowerCase() !== customer.email.toLowerCase()
-      ) {
+        input.email.toLowerCase() !== customer.email.toLowerCase();
+      let pendingInvitationId: string | null = null;
+      if (emailChanged) {
         const [activeAccess] = await transaction
           .select({ id: customerUserAccess.id })
           .from(customerUserAccess)
@@ -300,32 +401,114 @@ export async function updateCustomer(
           )
           .limit(1);
 
+        if (activeAccess) {
+          return { kind: "email-change-restricted" };
+        }
+
         const [pendingInvitation] = await transaction
-          .select({ id: invitations.id })
+          .select({
+            id: invitations.id,
+            userId: invitations.userId,
+          })
           .from(invitations)
           .where(
             and(
               eq(invitations.customerId, customer.id),
               eq(invitations.status, "pending"),
-              gt(invitations.expiresAt, now),
             ),
           )
-          .limit(1);
+          .limit(1)
+          .for("update");
 
-        if (activeAccess || pendingInvitation) {
-          return { kind: "email-change-restricted" };
+        if (pendingInvitation) {
+          const [emailOwner] = await transaction
+            .select({
+              id: users.id,
+            })
+            .from(users)
+            .where(sql`lower(${users.email}) = ${input.email}`)
+            .limit(1)
+            .for("update");
+          const [pendingUser] = await transaction
+            .select({
+              id: users.id,
+              accountType: users.accountType,
+              status: users.status,
+              passwordHash: users.passwordHash,
+            })
+            .from(users)
+            .where(eq(users.id, pendingInvitation.userId))
+            .limit(1)
+            .for("update");
+
+          if (
+            emailOwner &&
+            emailOwner.id !== pendingInvitation.userId
+          ) {
+            return { kind: "conflict" };
+          }
+          if (
+            !pendingUser ||
+            pendingUser.accountType !== "customer" ||
+            pendingUser.status !== "invited" ||
+            pendingUser.passwordHash !== null
+          ) {
+            return { kind: "email-change-restricted" };
+          }
+
+          await transaction
+            .update(invitations)
+            .set({ status: "revoked", revokedAt: now })
+            .where(eq(invitations.id, pendingInvitation.id));
+          await revokeQueuedInvitationEmail(
+            transaction,
+            pendingInvitation.id,
+            now,
+          );
+          await transaction
+            .update(users)
+            .set({ email: input.email, updatedAt: now })
+            .where(eq(users.id, pendingUser.id));
+          pendingInvitationId = pendingInvitation.id;
         }
       }
 
       await transaction
         .update(customers)
-        .set({ ...input, updatedAt: now })
+        .set({
+          ...input,
+          ...(emailChanged ? { emailVerifiedAt: null } : {}),
+          updatedAt: now,
+        })
         .where(eq(customers.id, customer.id));
+
+      if (emailChanged) {
+        await invalidateCustomerEmailVerificationTokens(
+          transaction,
+          customer.id,
+          now,
+        );
+        await transaction.insert(auditLogs).values({
+          actorUserId: authorization.actorId,
+          action: "customer.email_changed",
+          entityType: "customer",
+          entityId: customer.id,
+          oldValues: { email: customer.email },
+          newValues: {
+            email: input.email,
+            emailVerifiedAt: null,
+            pendingInvitationRevoked: pendingInvitationId !== null,
+          },
+          createdAt: now,
+        });
+      }
 
       return {
         kind: "success",
         customerId: customer.id,
         updatedAt: now,
+        emailChanged,
+        pendingInvitationRevoked: pendingInvitationId !== null,
         sessionPolicy: authorization.policy,
       };
     });
@@ -336,6 +519,266 @@ export async function updateCustomer(
 
     throw error;
   }
+}
+
+export async function requestCustomerEmailVerification(
+  sessionToken: string,
+  customerId: string,
+  ipAddress: string | null,
+): Promise<CustomerEmailVerificationResult> {
+  const now = new Date();
+
+  return db.transaction(async (transaction) => {
+    const authorization = await authorizeCustomerManager(
+      transaction,
+      sessionToken,
+      now,
+    );
+    if (authorization.kind !== "authorized") {
+      return authorization;
+    }
+
+    const [customer] = await transaction
+      .select({
+        id: customers.id,
+        fullName: customers.fullName,
+        customerNumber: customers.customerNumber,
+        email: customers.email,
+        emailVerifiedAt: customers.emailVerifiedAt,
+        isTrashed: customers.isTrashed,
+      })
+      .from(customers)
+      .where(eq(customers.id, customerId))
+      .limit(1)
+      .for("update");
+    if (!customer || customer.isTrashed) {
+      return { kind: "not-found" };
+    }
+    if (customer.emailVerifiedAt !== null) {
+      return {
+        kind: "already-verified",
+        sessionPolicy: authorization.policy,
+      };
+    }
+
+    const accountLimit = await consumeRateLimitBucket(
+      transaction,
+      {
+        action: "customer_email_verification_account",
+        identity: customer.id,
+        maximum: 3,
+        windowMs: 60 * 60 * 1000,
+      },
+      now,
+    );
+    const ipLimit = await consumeRateLimitBucket(
+      transaction,
+      {
+        action: "customer_email_verification_request_ip",
+        identity: ipAddress ?? "unknown",
+        maximum: 10,
+        windowMs: 15 * 60 * 1000,
+      },
+      now,
+    );
+    if (!accountLimit.allowed || !ipLimit.allowed) {
+      return {
+        kind: "rate-limited",
+        retryAfterSeconds: Math.max(
+          accountLimit.allowed ? 0 : accountLimit.retryAfterSeconds,
+          ipLimit.allowed ? 0 : ipLimit.retryAfterSeconds,
+        ),
+      };
+    }
+
+    await invalidateCustomerEmailVerificationTokens(
+      transaction,
+      customer.id,
+      now,
+    );
+
+    const tokenId = randomUUID();
+    const otp = createCustomerEmailOtp();
+    const expiresAt = new Date(
+      now.getTime() + CUSTOMER_EMAIL_OTP_LIFETIME_MS,
+    );
+    await transaction.insert(customerEmailVerificationTokens).values({
+      id: tokenId,
+      customerId: customer.id,
+      email: customer.email,
+      tokenHash: getCustomerEmailOtpHash(customer.id, tokenId, otp),
+      createdAt: now,
+      expiresAt,
+    });
+    await transaction.insert(emailOutbox).values({
+      recipientEmail: customer.email,
+      templateKey: "customer_email_verification",
+      templateData: {
+        fullName: customer.fullName,
+        customerNumber: customer.customerNumber,
+      },
+      secretPayloadEncrypted: encryptSecretPayload(
+        JSON.stringify({ otp }),
+      ),
+      status: "queued",
+      attempts: 0,
+      maxAttempts: 5,
+      nextAttemptAt: now,
+      idempotencyKey: `customer-email-verification:${tokenId}`,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await transaction.insert(auditLogs).values({
+      actorUserId: authorization.actorId,
+      action: "customer.email_verification_requested",
+      entityType: "customer",
+      entityId: customer.id,
+      oldValues: null,
+      newValues: { email: customer.email },
+      createdAt: now,
+    });
+
+    return { kind: "queued", sessionPolicy: authorization.policy };
+  });
+}
+
+export async function verifyCustomerEmail(
+  sessionToken: string,
+  customerId: string,
+  otp: string,
+  ipAddress: string | null,
+): Promise<CustomerEmailVerificationResult> {
+  if (!/^\d{6}$/u.test(otp)) {
+    return { kind: "invalid" };
+  }
+
+  const now = new Date();
+
+  return db.transaction(async (transaction) => {
+    const authorization = await authorizeCustomerManager(
+      transaction,
+      sessionToken,
+      now,
+    );
+    if (authorization.kind !== "authorized") {
+      return authorization;
+    }
+
+    const [customer] = await transaction
+      .select({
+        id: customers.id,
+        email: customers.email,
+        emailVerifiedAt: customers.emailVerifiedAt,
+        isTrashed: customers.isTrashed,
+      })
+      .from(customers)
+      .where(eq(customers.id, customerId))
+      .limit(1)
+      .for("update");
+    if (!customer || customer.isTrashed) {
+      return { kind: "not-found" };
+    }
+    if (customer.emailVerifiedAt !== null) {
+      return {
+        kind: "already-verified",
+        sessionPolicy: authorization.policy,
+      };
+    }
+
+    const ipLimit = await consumeRateLimitBucket(
+      transaction,
+      {
+        action: "customer_email_verification_verify_ip",
+        identity: ipAddress ?? "unknown",
+        maximum: 20,
+        windowMs: 15 * 60 * 1000,
+      },
+      now,
+    );
+    if (!ipLimit.allowed) {
+      return {
+        kind: "rate-limited",
+        retryAfterSeconds: ipLimit.retryAfterSeconds,
+      };
+    }
+
+    const [challenge] = await transaction
+      .select({
+        id: customerEmailVerificationTokens.id,
+        email: customerEmailVerificationTokens.email,
+        tokenHash: customerEmailVerificationTokens.tokenHash,
+        expiresAt: customerEmailVerificationTokens.expiresAt,
+      })
+      .from(customerEmailVerificationTokens)
+      .where(
+        and(
+          eq(customerEmailVerificationTokens.customerId, customer.id),
+          eq(customerEmailVerificationTokens.email, customer.email),
+          isNull(customerEmailVerificationTokens.invalidatedAt),
+          gt(customerEmailVerificationTokens.expiresAt, now),
+        ),
+      )
+      .orderBy(desc(customerEmailVerificationTokens.createdAt))
+      .limit(1)
+      .for("update");
+
+    if (!challenge) {
+      return { kind: "invalid" };
+    }
+
+    const matches = matchesCustomerEmailOtpHash(
+      challenge.tokenHash,
+      getCustomerEmailOtpHash(customer.id, challenge.id, otp),
+    );
+    if (!matches) {
+      const attemptLimit = await consumeRateLimitBucket(
+        transaction,
+        {
+          action: "customer_email_verification_attempt",
+          identity: challenge.id,
+          maximum: CUSTOMER_EMAIL_OTP_ATTEMPT_LIMIT,
+          windowMs: CUSTOMER_EMAIL_OTP_LIFETIME_MS,
+        },
+        now,
+      );
+      if (!attemptLimit.allowed || attemptLimit.attemptCount >= CUSTOMER_EMAIL_OTP_ATTEMPT_LIMIT) {
+        await transaction
+          .update(customerEmailVerificationTokens)
+          .set({ invalidatedAt: now })
+          .where(eq(customerEmailVerificationTokens.id, challenge.id));
+      }
+      if (!attemptLimit.allowed) {
+        return {
+          kind: "rate-limited",
+          retryAfterSeconds: attemptLimit.retryAfterSeconds,
+        };
+      }
+      return { kind: "invalid" };
+    }
+
+    await transaction
+      .update(customerEmailVerificationTokens)
+      .set({ verifiedAt: now, invalidatedAt: now })
+      .where(eq(customerEmailVerificationTokens.id, challenge.id));
+    await transaction
+      .update(customers)
+      .set({ emailVerifiedAt: now, updatedAt: now })
+      .where(eq(customers.id, customer.id));
+    await transaction.insert(auditLogs).values({
+      actorUserId: authorization.actorId,
+      action: "customer.email_verified",
+      entityType: "customer",
+      entityId: customer.id,
+      oldValues: { emailVerifiedAt: null },
+      newValues: {
+        email: customer.email,
+        emailVerifiedAt: now.toISOString(),
+      },
+      createdAt: now,
+    });
+
+    return { kind: "verified", sessionPolicy: authorization.policy };
+  });
 }
 
 export async function deleteCustomer(

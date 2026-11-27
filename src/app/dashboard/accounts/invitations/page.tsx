@@ -1,13 +1,21 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { and, desc, eq, inArray, isNull, notExists } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  notExists,
+} from "drizzle-orm";
 import {
   ManageInvitations,
   type InvitationListItem,
 } from "@/components/auth/manage-invitations";
 import { InviteCustomerForm } from "@/components/auth/invite-customer-form";
 import { InviteUserForm } from "@/components/auth/invite-user-form";
+import { Breadcrumbs } from "@/components/navigation/breadcrumbs";
 import { db } from "@/lib/db";
 import { canManageStaffAccounts } from "@/lib/auth/policy";
 import {
@@ -152,7 +160,7 @@ export default async function ManageInvitationsPage({
         isNull(customerUserAccess.revokedAt),
       ),
     );
-  const customerOptions =
+  const customerRows =
     tab === "invite"
       ? await db
           .select({
@@ -170,12 +178,25 @@ export default async function ManageInvitationsPage({
           )
           .orderBy(customers.fullName, customers.customerNumber)
       : [];
+  const customerOptions = customerRows.map((row) => ({
+    id: row.id,
+    customerNumber: row.customerNumber,
+    fullName: row.fullName,
+    email: row.email,
+  }));
 
   return (
     <section
       aria-labelledby="invitations-title"
-      className="mx-auto w-full max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+      className="mx-auto w-full max-w-5xl space-y-6"
     >
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Invitations" },
+        ]}
+      />
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
       <header className="mb-6">
         <p className="mb-2 text-sm font-semibold text-teal-800">Accounts</p>
         <h1
@@ -236,7 +257,9 @@ export default async function ManageInvitationsPage({
               Invite customer
             </h2>
             <p className="mb-4 text-sm leading-6 text-slate-600">
-              Choose an existing customer without an active portal login.
+              Choose a customer without an active portal login. A pending
+              invitation is created immediately, and the customer confirms
+              their email when they accept it.
             </p>
             <InviteCustomerForm customers={customerOptions} />
           </section>
@@ -244,6 +267,7 @@ export default async function ManageInvitationsPage({
       ) : (
         <ManageInvitations invitations={list} />
       )}
+      </div>
     </section>
   );
 }

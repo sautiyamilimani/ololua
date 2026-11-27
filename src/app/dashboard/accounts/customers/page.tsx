@@ -42,7 +42,7 @@ function formatDate(value: Date): string {
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[]; deleted?: string | string[] }>;
+  searchParams: Promise<{ q?: string | string[] }>;
 }) {
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   if (!isValidSessionToken(token)) {
@@ -81,7 +81,6 @@ export default async function CustomersPage({
     typeof params.q === "string"
       ? params.q.trim().slice(0, MAX_SEARCH_LENGTH)
       : "";
-  const customerDeleted = params.deleted === "1";
   const canManage =
     await userHasPermission(session.user.id, CUSTOMER_MANAGE_PERMISSION);
 
@@ -188,15 +187,7 @@ export default async function CustomersPage({
         </button>
       </form>
 
-      {customerDeleted && (
-        <p
-          aria-live="polite"
-          className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800"
-          role="status"
-        >
-          Customer moved to trash. Linked records were retained.
-        </p>
-      )}
+
 
       {rows.length === 0 ? (
         <p className="text-sm leading-6 text-slate-600">

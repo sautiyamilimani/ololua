@@ -2,16 +2,14 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getApplicationOrigin, hasValidCsrfHeaders } from "@/lib/auth/csrf";
 import { errorResponse, successResponse } from "@/lib/auth/response";
-import { readJsonBody, isRecord } from "@/lib/auth/request";
+import { readJsonBody } from "@/lib/auth/request";
 import {
   isValidSessionToken,
   SESSION_COOKIE_NAME,
   setSessionCookie,
 } from "@/lib/auth/session-token";
 import { assignMeter } from "@/lib/meter-assignments/management";
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+import { parseAssignMeterInput } from "@/lib/meter-assignments/input";
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
@@ -26,15 +24,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const body = await readJsonBody(request);
-    if (
-      !body.ok ||
-      !isRecord(body.value) ||
-      Object.keys(body.value).length !== 2 ||
-      typeof body.value.meterId !== "string" ||
-      !UUID_PATTERN.test(body.value.meterId) ||
-      typeof body.value.accountId !== "string" ||
-      !UUID_PATTERN.test(body.value.accountId)
-    ) {
+    const input = body.ok ? parseAssignMeterInput(body.value) : null;
+    if (!input) {
       return errorResponse(400, "VALIDATION_ERROR", "The assignment request is invalid.");
     }
 
@@ -45,8 +36,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     const result = await assignMeter(
       sessionToken,
-      body.value.meterId,
-      body.value.accountId,
+      input.meterId,
+      input.accountId,
+      input.locationDescription,
     );
     if (result.kind === "unauthenticated") {
       return errorResponse(401, "UNAUTHENTICATED", "Sign in to continue.");

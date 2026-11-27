@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 type RequestState =
   | { kind: "idle" }
-  | { kind: "submitting" }
-  | { kind: "error"; message: string }
-  | { kind: "success" };
+  | { kind: "submitting" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,6 +51,12 @@ function getErrorMessage(code: string | null): string {
 export function PasswordResetRequestForm() {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<RequestState>({ kind: "idle" });
+  const notifications = useNotifications();
+
+  function showError(message: string, persistent = false): void {
+    setState({ kind: "idle" });
+    notifications.error(message, persistent);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -77,10 +82,10 @@ export function PasswordResetRequestForm() {
         body: JSON.stringify({ email }),
       });
     } catch {
-      setState({
-        kind: "error",
-        message: "We could not reach the service. Check your connection and try again.",
-      });
+      showError(
+        "We could not reach the service. Check your connection and try again.",
+        true,
+      );
       return;
     }
 
@@ -89,43 +94,24 @@ export function PasswordResetRequestForm() {
     try {
       payload = await response.json();
     } catch {
-      setState({
-        kind: "error",
-        message: "We could not verify the response. Please try again.",
-      });
+      showError("We could not verify the response. Please try again.");
       return;
     }
 
     if (!response.ok) {
-      setState({
-        kind: "error",
-        message: getErrorMessage(getErrorCode(payload)),
-      });
+      showError(getErrorMessage(getErrorCode(payload)));
       return;
     }
 
     if (!isAcceptedResponse(payload)) {
-      setState({
-        kind: "error",
-        message: "We could not verify the response. Please try again.",
-      });
+      showError("We could not verify the response. Please try again.");
       return;
     }
 
     setEmail("");
-    setState({ kind: "success" });
-  }
-
-  if (state.kind === "success") {
-    return (
-      <div
-        className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950"
-        role="status"
-      >
-        If an eligible account exists, a reset link will be sent when email
-        delivery is enabled. Check your inbox and spam folder. If it does not
-        arrive, contact your administrator.
-      </div>
+    setState({ kind: "idle" });
+    notifications.success(
+      "If an eligible account exists, a reset link will be sent when email delivery is enabled. Check your inbox and spam folder. If it does not arrive, contact your administrator.",
     );
   }
 
@@ -150,15 +136,6 @@ export function PasswordResetRequestForm() {
           value={email}
         />
       </div>
-
-      {state.kind === "error" && (
-        <div
-          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-900"
-          role="alert"
-        >
-          {state.message}
-        </div>
-      )}
 
       <button
         className="flex min-h-11 w-full items-center justify-center rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-800 disabled:cursor-not-allowed disabled:opacity-60"

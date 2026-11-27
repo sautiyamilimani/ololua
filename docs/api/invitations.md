@@ -68,7 +68,7 @@ The implementation hashes the raw token and first performs a read-only preflight
 2. Lock the linked user row and require `status = invited` and `password_hash IS NULL`. Require a case-insensitive match between the user's email and `invited_email`.
 3. Read the invitation role and the user's existing roles again; enforce the confirmed password minimum for the user's current account type and roles.
 4. Assign the required invitation role in `user_roles`. The current schema requires `invitations.role_id`, so each invitation must reference a valid role.
-5. Set `password_hash`, `password_changed_at`, `email_verified_at`, and `status = active`; reset failed-login counters.
+5. Set `password_hash`, `password_changed_at`, the portal user's `email_verified_at`, and `status = active`; reset failed-login counters. For customer invitations, also set the linked customer's `email_verified_at` in this transaction.
 6. Create the session using `getSessionPolicy` and insert its token hash, creation/activity time, and both expiry timestamps.
 7. Mark the invitation `accepted` and set `accepted_at`; record an `invitation_accepted` security event without storing the raw token or password.
 8. Commit all changes together. Only after commit, return the response and set the session cookie. A failed operation must not partially activate the user or consume the invitation.
@@ -92,7 +92,7 @@ The row lock makes concurrent acceptance attempts safe: only one can change a pe
 2. `admin` and `superadmin` may invite customer accounts by default. Office/billing staff require an explicit `invitations.create_customer` permission grant; the permission is not granted to `billing_officer` by development seed data.
 3. Staff accounts may receive staff roles only. Customer accounts may receive only the `customer` role.
 4. The `superadmin` role can only be assigned by the one-time bootstrap command. Normal invitation issuance rejects it, and a database trigger-backed singleton constraint allows at most one superadmin assignment.
-5. A customer record must exist before a customer invitation is sent.
+5. A customer record must exist before a customer invitation can be issued, but its email does not need prior verification. The invitation link is sent to the customer record's current address. Accepting the invitation verifies both the portal user's email and the customer record's `email_verified_at` in the same transaction. Editing the customer email resets verification and revokes any pending invitation; an active portal link must be revoked before the address can be changed.
 6. A customer record may have only one active linked user. Create the `customer_user_access` link on acceptance, not issuance. This does not limit that customer to one meter/service account.
 7. Invitations expire 72 hours after issuance.
 8. There may be only one pending invitation per target email and only one pending invitation per customer.
@@ -134,7 +134,7 @@ The one-to-one limit applies to a `customers` master record and its portal user;
 }
 ```
 
-For a customer invitation, the recipient email and display name come from the existing customer record, and the API fixes the role to `customer`. Staff email, name, and a valid staff role are supplied by the authorized caller. The API does not return the raw invitation token; it writes the token to `email_outbox.secret_payload_encrypted` using AES-256-GCM and returns `202` with the invitation ID, expiry, and an email-queued indicator.
+For a customer invitation, the recipient email and display name come from the existing customer record, and the API fixes the role to `customer`. Staff email, name, and a valid staff role are supplied by the authorized caller. The API does not return the raw invitation token; it writes the token to `email_outbox.secret_payload_encrypted` using AES-256-GCM and returns `202` with the invitation ID, expiry, an email-queued indicator, and `emailSendingEnabled`. `emailQueued: true` means the outbox entry exists; it does not mean SMTP has accepted the message. `emailSent` remains `false` in the immediate response because sending is deferred with Next.js `after()`.
 
 Responses use the common no-store envelope: `202` when queued, `400 VALIDATION_ERROR` for malformed input or role choice, `401 UNAUTHENTICATED` for a missing/invalid session, `403 FORBIDDEN` when the actor lacks authority, `404 NOT_FOUND` when the customer record is absent, `409 INVITATION_CONFLICT` when an account, active customer link, or conflicting pending invitation exists, and `500 INTERNAL_ERROR` for unexpected failures.
 
@@ -142,15 +142,17 @@ The authenticated issuer's session and user are revalidated in the transaction. 
 
 The dashboard only renders the invite-user and manage-invitations navigation options for staff users with the `admin` or `superadmin` role. Hiding navigation is a usability measure, not an authorization boundary: the invitation pages and API handlers independently enforce authorization.
 
-The protected `/dashboard/accounts/invite` page supports both staff invitations and customer invitations. Customer invitations are selected from existing customer records that do not have an active portal-user link; the recipient name and email are resolved by the API from the selected customer ID. Pending customer invitations can be reissued from the invitation form or the invitation-management page. The current invitation UI is available to administrators and superadministrators; the API continues to enforce its broader permission policy independently.
+The protected Invitations page supports staff and customer invitations. Customer records without an active portal-user link are selectable regardless of their verification status. Clicking Invite immediately creates the pending invitation through the same API and outbox delivery path as staff invitations; the customer verifies the address by accepting the invitation and setting a password. Customer registration can optionally start this same invitation flow, or leave the customer without portal access. Pending customer invitations can be reissued from the invitation form or the invitation-management page. The current invitation UI is available to administrators and superadministrators; the API continues to enforce its broader permission policy independently.
 
-After the transaction commits, the invitation Route Handler makes one immediate attempt to send invitation emails through the existing outbox. The result is returned as `emailSent`; `emailQueued` remains true because the row stays available for worker retries. If SMTP is disabled or unavailable, issuance still succeeds and leaves the invitation email queued or retried through the outbox. The separate outbox worker remains available for scheduled or manual retry.
+After the transaction commits, the invitation Route Handler schedules one deferred outbox attempt with Next.js `after()`. The API response is returned first; SMTP processing then runs after the response is finished, without making invitation issuance wait for the provider. `emailSent` is not used to claim successful delivery from the Route Handler response, while `emailQueued` remains true because the outbox row remains available for worker retries. If SMTP is disabled or unavailable, issuance still succeeds and leaves the invitation email queued or retried through the outbox. The separate outbox worker remains available for scheduled or manual retry.
 
 The customer target is stored on `invitations.customer_id` so acceptance can create `customer_user_access` atomically. Partial unique indexes allow only one pending invitation per email and one per customer, and one active user link per customer. A revoked access link remains in history while allowing a later link.
 
 `EMAIL_OUTBOX_ENCRYPTION_KEY` must be configured as a base64-encoded 32-byte key. Generate a distinct value for each environment with `openssl rand -base64 32`. Configure `EMAIL` and `GMAIL_APP_PASSWORD` for Gmail SMTP. The password must be a Google App Password, not the account password.
 
 Run `npm run email:verify-smtp` to check SMTP authentication without sending an email. `npm run email:process-outbox` sends up to 10 due messages by default; append `-- --limit 1` to process only one. Sending requires `EMAIL_OUTBOX_ENABLED=true`; a non-loopback database additionally requires `EMAIL_OUTBOX_ALLOW_REMOTE_SEND=true`. Keep sending disabled until `APP_ORIGIN` points to a reachable deployment and sender deliverability has been reviewed. The worker claims messages with row locks, retries transient SMTP failures with exponential backoff up to each row's `max_attempts`, and marks unsupported or exhausted messages failed. It does not log tokens or message contents. Delivery is at-least-once: a process crash after the SMTP server accepts a message but before the database marks it sent can result in a duplicate retry.
+
+Every outgoing plain-text email template includes a footer linking to the Ololua website: `https://mwavuna.github.io/ololua`.
 
 Successful SMTP submission does not guarantee inbox placement. The Gmail SMTP smoke test was accepted by Gmail, but the user reported the messages arrived in Spam. Review sender reputation and SPF/DKIM/DMARC alignment for the sending identity; do not treat SMTP authentication as a deliverability guarantee.
 

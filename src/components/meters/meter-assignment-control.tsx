@@ -2,18 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 type AccountOption = {
   id: string;
   accountNumber: string;
   customerName: string;
-  propertyAddress: string;
 };
-
-type AssignmentMessage =
-  | { kind: "success"; text: string }
-  | { kind: "error"; text: string }
-  | null;
 
 export function MeterAssignmentControl({
   meterId,
@@ -31,6 +27,7 @@ export function MeterAssignmentControl({
         accountNumber: string;
         customerId: string;
         customerName: string;
+        locationDescription: string | null;
       }
     | null;
   accounts: AccountOption[];
@@ -38,16 +35,18 @@ export function MeterAssignmentControl({
 }) {
   const router = useRouter();
   const [accountId, setAccountId] = useState("");
+  const [locationDescription, setLocationDescription] = useState("");
   const [reason, setReason] = useState("");
+  const [removing, setRemoving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<AssignmentMessage>(null);
+  const { confirm, dialog } = useConfirmationDialog();
+  const notifications = useNotifications();
 
   async function assign(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!accountId || submitting) return;
 
     setSubmitting(true);
-    setMessage(null);
     try {
       const response = await fetch("/api/meter-assignments", {
         method: "POST",
@@ -58,33 +57,33 @@ export function MeterAssignmentControl({
           "Content-Type": "application/json",
           "X-CSRF-Protection": "1",
         },
-        body: JSON.stringify({ meterId, accountId }),
+        body: JSON.stringify({
+          meterId,
+          accountId,
+          locationDescription: locationDescription.trim() || null,
+        }),
       });
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok) {
-        setMessage({
-          kind: "error",
-          text:
-            payload &&
+        notifications.error(
+          payload &&
             typeof payload === "object" &&
             "error" in payload &&
             payload.error &&
             typeof payload.error === "object" &&
             "message" in payload.error &&
             typeof payload.error.message === "string"
-              ? payload.error.message
-              : "The meter could not be assigned.",
-        });
+            ? payload.error.message
+            : "The meter could not be assigned.",
+        );
         return;
       }
       setAccountId("");
-      setMessage({ kind: "success", text: "Meter assigned successfully." });
+      setLocationDescription("");
+      notifications.success("Meter assigned successfully.");
       router.refresh();
     } catch {
-      setMessage({
-        kind: "error",
-        text: "Could not reach the service. Try again.",
-      });
+      notifications.error("Could not reach the service. Try again.", true);
     } finally {
       setSubmitting(false);
     }
@@ -94,22 +93,20 @@ export function MeterAssignmentControl({
     if (!activeAssignment || submitting) return;
     const normalizedReason = reason.trim();
     if (!normalizedReason) {
-      setMessage({
-        kind: "error",
-        text: "Enter a reason before removing this assignment.",
-      });
+      notifications.error("Enter a reason before removing this assignment.");
       return;
     }
-    if (
-      !window.confirm(
-        `Remove this meter from ${activeAssignment.customerName}'s account ${activeAssignment.accountNumber}?`,
-      )
-    ) {
+    const confirmed = await confirm({
+      title: "Remove this meter?",
+      description: `Remove this meter from ${activeAssignment.customerName}'s account ${activeAssignment.accountNumber}? Its assignment history will be retained.`,
+      confirmLabel: "Remove meter",
+      tone: "danger",
+    });
+    if (!confirmed) {
       return;
     }
 
     setSubmitting(true);
-    setMessage(null);
     try {
       const response = await fetch(
         `/api/meter-assignments/${activeAssignment.id}`,
@@ -126,23 +123,15 @@ export function MeterAssignmentControl({
         },
       );
       if (!response.ok) {
-        setMessage({
-          kind: "error",
-          text: "The meter assignment could not be removed.",
-        });
+        notifications.error("The meter assignment could not be removed.");
         return;
       }
       setReason("");
-      setMessage({
-        kind: "success",
-        text: "Meter assignment removed successfully.",
-      });
+      setRemoving(false);
+      notifications.success("Meter assignment removed successfully.");
       router.refresh();
     } catch {
-      setMessage({
-        kind: "error",
-        text: "Could not reach the service. Try again.",
-      });
+      notifications.error("Could not reach the service. Try again.", true);
     } finally {
       setSubmitting(false);
     }
@@ -151,20 +140,6 @@ export function MeterAssignmentControl({
   return (
     <section className="mt-8 border-t border-slate-200 pt-6">
       <h2 className="text-base font-semibold text-slate-950">Assignment</h2>
-
-      {message && (
-        <p
-          aria-live="polite"
-          className={`mt-4 rounded-lg border px-3 py-2.5 text-sm ${
-            message.kind === "error"
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-teal-200 bg-teal-50 text-teal-800"
-          }`}
-          role={message.kind === "error" ? "alert" : "status"}
-        >
-          {message.text}
-        </p>
-      )}
 
       {activeAssignment ? (
         <div className="mt-4 rounded-xl border border-teal-200 bg-teal-50 p-4">
@@ -176,30 +151,58 @@ export function MeterAssignmentControl({
             customerName={activeAssignment.customerName}
             accountNumber={activeAssignment.accountNumber}
           />
+          <p className="mt-2 text-sm text-slate-700">
+            Location: {activeAssignment.locationDescription ?? "Not specified"}
+          </p>
           {canManage && (
             <div className="mt-4">
-              <label
-                className="mb-1.5 block text-sm font-medium text-slate-700"
-                htmlFor="meterAssignmentRemovalReason"
-              >
-                Removal reason
-              </label>
-              <textarea
-                className="block min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5"
-                id="meterAssignmentRemovalReason"
-                maxLength={500}
-                onChange={(event) => setReason(event.target.value)}
-                placeholder="Example: Meter replaced"
-                value={reason}
-              />
-              <button
-                className="mt-3 min-h-11 rounded-lg border border-red-300 px-4 py-2.5 text-sm font-semibold text-red-800 transition hover:bg-red-50 disabled:opacity-60"
-                disabled={submitting}
-                onClick={() => void remove()}
-                type="button"
-              >
-                {submitting ? "Removing..." : "Remove assignment"}
-              </button>
+              {removing ? (
+                <div>
+                  <label
+                    className="mb-1.5 block text-sm font-medium text-slate-700"
+                    htmlFor="meterAssignmentRemovalReason"
+                  >
+                    Removal reason
+                  </label>
+                  <textarea
+                    className="block min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                    id="meterAssignmentRemovalReason"
+                    maxLength={500}
+                    onChange={(event) => setReason(event.target.value)}
+                    placeholder="Example: Meter replaced"
+                    value={reason}
+                  />
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      className="min-h-11 rounded-lg border border-red-300 px-4 py-2.5 text-sm font-semibold text-red-800 transition hover:bg-red-50 disabled:opacity-60"
+                      disabled={submitting}
+                      onClick={() => void remove()}
+                      type="button"
+                    >
+                      {submitting ? "Removing..." : "Confirm removal"}
+                    </button>
+                    <button
+                      className="min-h-11 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700"
+                      onClick={() => {
+                        setRemoving(false);
+                        setReason("");
+                      }}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="min-h-11 rounded-lg border border-red-300 px-4 py-2.5 text-sm font-semibold text-red-800 transition hover:bg-red-50 disabled:opacity-60"
+                  disabled={submitting}
+                  onClick={() => setRemoving(true)}
+                  type="button"
+                >
+                  Remove assignment
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -223,10 +226,25 @@ export function MeterAssignmentControl({
                 <option value="">Select a customer service account</option>
                 {accounts.map((account) => (
                   <option key={account.id} value={account.id}>
-                    {account.customerName} · {account.accountNumber} · {account.propertyAddress}
+                    {account.customerName} · {account.accountNumber}
                   </option>
                 ))}
               </select>
+              <label
+                className="mb-1.5 mt-3 block text-sm font-medium text-slate-700"
+                htmlFor="meterAssignmentLocation"
+              >
+                Meter location
+              </label>
+              <input
+                className="block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                id="meterAssignmentLocation"
+                maxLength={500}
+                onChange={(event) =>
+                  setLocationDescription(event.target.value)
+                }
+                value={locationDescription}
+              />
               <button
                 className="mt-3 min-h-11 rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
                 disabled={submitting || !accountId}
@@ -243,6 +261,7 @@ export function MeterAssignmentControl({
           )}
         </div>
       )}
+      {dialog}
     </section>
   );
 }

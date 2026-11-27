@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, desc, eq, gt, inArray, isNull, ne, or } from "drizzle-orm";
@@ -12,6 +11,7 @@ import { StaffAccountActivity } from "@/components/auth/staff-account-activity";
 import { StaffAccountStatusControl } from "@/components/auth/staff-account-status-control";
 import { StaffCustomerAccessControl } from "@/components/auth/staff-customer-access-control";
 import { StaffRoleControl } from "@/components/auth/staff-role-control";
+import { Breadcrumbs } from "@/components/navigation/breadcrumbs";
 import { db } from "@/lib/db";
 import {
   CUSTOMER_MANAGE_PERMISSION,
@@ -311,15 +311,17 @@ export default async function StaffUserDetailsPage({
   return (
     <section
       aria-labelledby="staff-user-details-title"
-      className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+      className="mx-auto w-full max-w-3xl space-y-6"
     >
-      <Link
-        className="text-sm font-semibold text-teal-900 underline-offset-4 hover:underline"
-        href="/dashboard/accounts/users"
-      >
-        Back to users
-      </Link>
-      <header className="mb-8 mt-6">
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Users", href: "/dashboard/accounts/users" },
+          { label: user.fullName },
+        ]}
+      />
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <header className="mb-8">
         <p className="mb-2 text-sm font-semibold text-teal-800">Accounts</p>
         <div className="flex flex-wrap items-center gap-3">
           <h1
@@ -412,6 +414,7 @@ export default async function StaffUserDetailsPage({
           userId={user.id}
         />
       )}
+      </div>
     </section>
   );
 }

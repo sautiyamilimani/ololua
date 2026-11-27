@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { CustomerMeterAccountForm } from "@/components/customers/customer-meter-account-form";
+import { Breadcrumbs } from "@/components/navigation/breadcrumbs";
 import { db } from "@/lib/db";
 import {
   customers,
@@ -96,14 +96,20 @@ export default async function NewCustomerMeterAccountPage({
   const availableMeters = meterRows.filter((meter) => !assignedMeterIds.has(meter.id));
 
   return (
-    <section className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <Link
-        className="text-sm font-semibold text-teal-900 underline-offset-4 hover:underline"
-        href={`/dashboard/accounts/customers/${customerId}`}
-      >
-        Back to customer
-      </Link>
-      <header className="mb-6 mt-6">
+    <section className="mx-auto w-full max-w-3xl space-y-6">
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Customers", href: "/dashboard/accounts/customers" },
+          {
+            label: customer.fullName,
+            href: `/dashboard/accounts/customers/${customerId}`,
+          },
+          { label: "Add service account" },
+        ]}
+      />
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <header className="mb-6">
         <p className="mb-2 text-sm font-semibold text-teal-800">Customer accounts</p>
         <h1 className="text-2xl font-semibold text-slate-950">Add service account</h1>
         <p className="mt-2 text-sm text-slate-600">
@@ -130,6 +136,7 @@ export default async function NewCustomerMeterAccountPage({
           label: zone.label,
         }))}
       />
+      </div>
     </section>
   );
 }

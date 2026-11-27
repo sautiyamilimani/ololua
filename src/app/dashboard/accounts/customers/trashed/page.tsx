@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { Breadcrumbs } from "@/components/navigation/breadcrumbs";
 import { customers, users } from "@/lib/db/schema";
 import { getActiveSession } from "@/lib/auth/session";
 import {
@@ -76,15 +76,17 @@ export default async function TrashedCustomersPage() {
   return (
     <section
       aria-labelledby="trashed-customers-title"
-      className="mx-auto w-full max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+      className="mx-auto w-full max-w-5xl space-y-6"
     >
-      <Link
-        className="text-sm font-semibold text-teal-900 underline-offset-4 hover:underline"
-        href="/dashboard/accounts/customers"
-      >
-        Back to customers
-      </Link>
-      <header className="mb-6 mt-5">
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Customers", href: "/dashboard/accounts/customers" },
+          { label: "Trashed customers" },
+        ]}
+      />
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <header className="mb-6">
         <div className="flex items-center gap-3">
           <span className="flex size-11 items-center justify-center rounded-full bg-slate-100 text-slate-700">
             <svg
@@ -162,6 +164,7 @@ export default async function TrashedCustomersPage() {
           </table>
         </div>
       )}
+      </div>
     </section>
   );
 }

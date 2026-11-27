@@ -286,7 +286,6 @@ export async function issueInvitation(
         ? { kind: "customer-not-found" }
         : { kind: "conflict" };
     }
-
     if (
       target.email.length === 0 ||
       target.email.length > 254 ||

@@ -36,6 +36,19 @@ export type MeterAssignmentResult =
   | { kind: "already-removed" }
   | { kind: "removal-reason-required" };
 
+export type UpdateMeterAssignmentLocationResult =
+  | {
+      kind: "success";
+      assignmentId: string;
+      locationDescription: string | null;
+      updatedAt: Date;
+      sessionPolicy: SessionPolicy;
+    }
+  | { kind: "unauthenticated" }
+  | { kind: "forbidden" }
+  | { kind: "assignment-not-found" }
+  | { kind: "already-removed" };
+
 type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 async function authorizeMeterAssignmentManager(
@@ -125,6 +138,7 @@ export async function assignMeter(
   sessionToken: string,
   meterId: string,
   accountId: string,
+  locationDescription: string | null = null,
 ): Promise<MeterAssignmentResult> {
   const now = new Date();
   try {
@@ -175,6 +189,7 @@ export async function assignMeter(
           meterId: meter.id,
           customerMeterAccountId: account.id,
           initialReading: "0.000",
+          locationDescription,
           assignedAt: now,
           assignedBy: authorization.actorId,
           createdAt: now,
@@ -192,6 +207,7 @@ export async function assignMeter(
           meterId: meter.id,
           customerMeterAccountId: account.id,
           initialReading: "0.000",
+          locationDescription,
         },
         createdAt: now,
       });
@@ -219,6 +235,61 @@ export async function assignMeter(
     }
     throw error;
   }
+}
+
+export async function updateMeterAssignmentLocation(
+  sessionToken: string,
+  assignmentId: string,
+  locationDescription: string | null,
+): Promise<UpdateMeterAssignmentLocationResult> {
+  const now = new Date();
+
+  return db.transaction(async (transaction) => {
+    const authorization = await authorizeMeterAssignmentManager(
+      transaction,
+      sessionToken,
+      now,
+    );
+    if (authorization.kind !== "authorized") return authorization;
+
+    const [assignment] = await transaction
+      .select({
+        id: meterAssignments.id,
+        locationDescription: meterAssignments.locationDescription,
+        removedAt: meterAssignments.removedAt,
+      })
+      .from(meterAssignments)
+      .where(eq(meterAssignments.id, assignmentId))
+      .limit(1)
+      .for("update");
+    if (!assignment) return { kind: "assignment-not-found" as const };
+    if (assignment.removedAt !== null) {
+      return { kind: "already-removed" as const };
+    }
+
+    await transaction
+      .update(meterAssignments)
+      .set({ locationDescription, updatedAt: now })
+      .where(eq(meterAssignments.id, assignment.id));
+
+    await transaction.insert(auditLogs).values({
+      actorUserId: authorization.actorId,
+      action: "meter_assignment.location_updated",
+      entityType: "meter_assignment",
+      entityId: assignment.id,
+      oldValues: { locationDescription: assignment.locationDescription },
+      newValues: { locationDescription },
+      createdAt: now,
+    });
+
+    return {
+      kind: "success",
+      assignmentId: assignment.id,
+      locationDescription,
+      updatedAt: now,
+      sessionPolicy: authorization.policy,
+    };
+  });
 }
 
 export async function removeMeterAssignment(

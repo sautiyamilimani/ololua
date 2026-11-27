@@ -18,7 +18,7 @@
         "test:customers": "tsx --test src/lib/customers/query.test.ts src/lib/customers/input.test.ts",
         "test:customer-meter-accounts": "tsx --test src/lib/customer-meter-accounts/input.test.ts src/lib/customer-meter-accounts/lifecycle.test.ts",
         "test:customer-meter-accounts:db": "tsx --test --test-concurrency=1 src/lib/customer-meter-accounts/management.integration.test.ts src/lib/customer-meter-accounts/lifecycle.integration.test.ts",
-        "test:meter-assignments": "tsx --test src/lib/meter-assignments/state.test.ts",
+        "test:meter-assignments": "tsx --test src/lib/meter-assignments/input.test.ts src/lib/meter-assignments/state.test.ts",
         "test:meter-assignments:db": "tsx --test --test-concurrency=1 src/lib/meter-assignments/management.integration.test.ts",
         "test:meter-readings": "tsx --test src/lib/meter-readings/input.test.ts src/lib/meter-readings/state.test.ts",
         "test:meter-billings": "tsx --test src/lib/meter-billings/state.test.ts",

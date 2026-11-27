@@ -25,7 +25,7 @@ Build a reliable Water Services Management Information System for Ololua. Correc
 
 ## 4. Current stage and progress
 
-**Current stage: Stage 2 - Backend Route Handlers (customer list, detail, create, and update APIs complete).** Stage 1 customer email uniqueness and sequence migrations are applied and verified. Broader Stage 2 operational APIs and Stage 3 business logic remain. Earlier Stage 4 frontend work remains implemented; no new frontend work was done.
+**Current approved scope: Stage 4 - Frontend customer and staff workflows.** The current email-verification task extends the existing customer registration and invitation flows, with its supporting schema/API/business logic explicitly approved by the user. Broader billing, payment, and PWA work remains out of scope.
 
 Completed in the initial task:
 
@@ -769,6 +769,122 @@ Verification:
 - `npm run test:auth`: passed, 7 tests.
 - `npx tsc --noEmit`: passed.
 - `npm run lint`: passed.
+- - `git diff --check`: passed.
+
+## Admin billing and SMS settings (complete)
+
+Implementation:
+
+- Added admin/superadmin access to `/dashboard/accounts/settings`.
+- Added `GET/PATCH /api/admin/settings`.
+- Settings management updates `invoice_due_days` and four SMS templates in the existing `settings` table.
+- The seed now sets `invoice_due_days` to 14 and adds the confirmed reminder, payment-confirmation, new-bill, and announcement templates.
+- Updates are validated, written transactionally, session-renewed, and secret-free audit events are recorded for changed values.
+- SMS sending infrastructure is not implemented; templates are editable only.
+
+Files changed:
+
+- `src/app/dashboard/accounts/settings/page.tsx`
+- `src/components/settings/sms-template-form.tsx`
+- `src/app/api/admin/settings/route.ts`
+- `src/lib/settings/input.ts`
+- `src/lib/settings/management.ts`
+- `src/lib/settings/input.test.ts`
+- `src/lib/db/seed.ts`
+- `AGENTS.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+## Drawer profile account workspace (complete)
+
+Implementation:
+
+- Replaced the drawer's plain user-name block with a profile card.
+- Added a round initials placeholder, signed-in name, and email address.
+- Clicking the profile card opens `/dashboard/account`.
+- Added an account workspace with an account-security section and Change password action.
+- Removed Change password from the Accounts submenu; account management now belongs in the profile workspace.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+## View-first settings editing (complete)
+
+Implementation:
+
+- Settings opens with every invoice/SMS card in view mode using the currently configured database values.
+- Each card has its own edit/cancel icon.
+- Create new, Reset wording, placeholder insertion, textareas, and Save appear only for the card being edited.
+- Cancel restores the values initially loaded for that card.
+- The Accounts drawer submenu now starts closed.
+- Accounts has a dedicated folder icon in the drawer.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- Browser verification and live settings mutation were not performed. Git reported existing LF/CRLF normalization warnings for `drizzle/meta/_journal.json` and `next.config.ts`.
+
+## Settings drawer and form layout (complete)
+
+Implementation:
+
+- Moved Settings out of the Accounts submenu into a top-level admin-only drawer option at `/dashboard/settings`.
+- Removed redundant Dashboard and Customers entries from the navigation drawer.
+- Added distinct drawer icons for Meters, Manage users, Invitations, Settings, My customer account, and Change password.
+- SMS settings inputs are prefilled from the live `settings` table, using confirmed defaults only when a key is missing.
+- Added a per-template Create new action that clears only the selected template after confirmation.
+- Restyled the Settings page into separated sections:
+  - Invoice due period
+  - Payment reminder
+  - Payment confirmation
+  - New bill
+  - Announcement
+- Added clear numbering and larger title typography for SMS message types.
+- Kept horizontal section boundaries and visible form contrast.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed. Git reported existing LF/CRLF normalization warnings for `drizzle/meta/_journal.json` and `next.config.ts`.
+
+## SMS template placeholder protection (complete)
+
+Implementation:
+
+- Added required-placeholder definitions for each editable SMS template.
+- Server validation rejects deleted required placeholders and unknown placeholders.
+- The Settings form shows missing placeholders as warnings.
+- Each template provides clickable placeholder insertion buttons and a Reset wording action.
+- Groq AI is not required for placeholder protection; it remains optional for future text rewriting.
+
+Verified protection:
+
+- Payment reminder requires customer name, meter number, amount due, and due date.
+- Payment confirmation requires customer name, amount paid, meter number, and payment reference.
+- New-bill template requires previous/current readings, consumption, bill amount, and due date.
+- Announcement template requires announcement text.
+
+Verification:
+
+- `npx tsx --test src/lib/settings/input.test.ts`: passed, 3 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
 - `git diff --check`: passed. Git reported existing LF/CRLF normalization warnings for `drizzle/meta/_journal.json` and `next.config.ts`.
 - No production build was run because the Ololua Next.js development server is active and uses the same `.next` directory.
 - Integration email delivery used a fake sender; no OTP or other email was sent. Test fixtures were removed from the loopback development database.
@@ -804,6 +920,187 @@ Verification:
 
 - `npx tsc --noEmit`: passed.
 - `npm run lint`: passed.
+- `git diff --check`: passed.
+
+## Dashboard placeholder route instant validation (complete)
+
+Implementation:
+
+- Added `export const instant = false` to the dashboard index and coming-soon invoice, billing, meter-reading, and usage pages.
+- These routes inherit the request-time dashboard session layout, so they must not be treated as instant/static navigation targets.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+## Confirmed Ololua customer operations and messaging (complete)
+
+Confirmed decisions:
+
+- One customer may have multiple meters, and every meter is billed separately.
+- Account suspension means water is disconnected. Confirmed suspension reasons include relocation and payment default.
+- Customer move-out/move-in requires removing the old meter and installing a new meter.
+- When a meter is replaced, unpaid balance remains on the old meter until it is paid. The unpaid balance is not moved to or cleared on the replacement meter.
+- Meter readings occur monthly, spread across several days.
+- Only an admin may correct a wrong meter reading.
+- Bills use a 14-day payment period.
+- The system has no SMS service yet.
+- Customers should receive payment reminders, payment confirmations, new-bill notices, and outage or price-change announcements.
+- Billing message content should include previous reading, current reading, consumption, bill amount, payment deadline, and a disconnection warning.
+- SMS templates are stored in settings, including payment reminder, payment confirmation, new-bill, and announcement templates.
+- SMS delivery infrastructure is not implemented.
+- Staff roles using the app are meter officers and administrators; director is the management role.
+- The director and admin may correct readings and payments and change water prices.
+
+Open ambiguity:
+
+- Connection fees, reconnection fees, and penalties are required, but their names and amounts have not been confirmed.
+- An exact billing notice deadline date format and timezone have not been fully specified.
+
+No database migration or application code changed for this documentation-only task.
+
+## Customer workspace first-glance summary (complete)
+
+Implementation:
+
+- Kept customer name, number, status, phone, email, and physical address visible first.
+- Moved customer type, location description, notes, account totals, created date, and updated date behind the `More information` menu action.
+- Put `More information`, `Edit customer`, and `Move to trash` in a vertical three-dots menu at the right of the customer name/status row.
+- The menu is available to users with read permission; edit and trash actions are shown only to users with customer management permission.
+- Added an Accounts / Customers / customer-name breadcrumb trail for clear workspace navigation.
+- Service accounts remain easy to scan and expand individually for meter and account details.
+
+Root cause:
+
+- The customer workspace rendered operational contact/address details and low-frequency master-record metadata in the same always-visible block.
+- Secondary data now has a dedicated progressive-disclosure section.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+## Service-account meter assignment controls (complete)
+
+Implementation:
+
+- Added a `Meters` section to the customer service-account detail page.
+- Lists active meters assigned to the account and links each meter to its meter detail page.
+- Added a collapsed `Assign meter` form for authorized staff.
+- The form assigns a meter that already exists in Meter Management; it does not create physical meters.
+- Assignment choices contain only active meters that have no active assignment.
+- Suspended or closed accounts cannot receive new assignments and show a clear explanation.
+- Added removal controls with a required reason, retaining assignment history through the existing API.
+
+Verified rules:
+
+- One physical meter may have one active assignment.
+- One service account may have multiple active meters.
+- Assignment and removal use the existing transactional `POST /api/meter-assignments` and `DELETE /api/meter-assignments/{assignmentId}` routes.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run test:meter-assignments`: passed, 2 tests.
+- `npm run test:meter-assignments:db`: passed, 1 test.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- Authenticated browser assignment/removal verification was not performed.
+
+## Consistent dashboard breadcrumbs (complete)
+
+Implementation:
+
+- Added a shared responsive `Breadcrumbs` component.
+- Added parent-to-current-page breadcrumbs for customer and staff details, service-account details/create, meter details/create, customer create/trash, and invitations.
+- Replaced standalone “Back to…” links on nested views with breadcrumb trails.
+- Breadcrumb labels use the live customer, staff, meter, or account identifier where available, and truncate safely on narrow screens.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- Browser verification was not performed.
+
+## Customer service-account tabs (complete)
+
+Implementation:
+
+- Grouped customer service accounts into Domestic Water, Tankered, and Bottled tabs.
+- Domestic Water is the default tab.
+- Counts are shown only for tabs with records.
+- Tankered and Bottled tabs show a clear no-records message until matching service accounts or variants exist.
+- Existing domestic account cards retain meter assignments and account details.
+- Added an active-account `Add meter` action to each Domestic Water account card.
+- The action opens that service account's meter-management page, where existing unassigned meters can be assigned and active meters can be removed.
+- Removal reason fields are hidden until Remove meter or Remove assignment is selected.
+- The account meter panel uses “Assign another meter” when one or more meters are already active.
+
+Database scope:
+
+- The live database currently has only `DOMESTIC_WATER` accounts.
+- Tankered and Bottled variants remain unseeded; no schema or live variant records were added.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: pending.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+## Settings SMS template diagnosis and save fix (complete)
+
+Root causes:
+
+- Live loopback settings initially contained only `invoice_due_days=30`; the SMS template keys had not been seeded.
+- Card saves sent every setting through the full-settings validator, so unchanged or missing SMS values could invalidate the due-days save.
+- Response feedback was rendered above the form rather than near the action.
+
+Fix:
+
+- Re-ran the loopback seed and normalized `invoice_due_days` to 14.
+- Confirmed all four SMS template settings now exist in the live loopback database.
+- Added partial settings payload validation: due-days saves update only `invoice_due_days`; each SMS card updates only its own template key.
+- Success and error feedback appears as a fixed bottom popup and closes manually or after five seconds.
+- SMS template values remain prefilled from the database in view mode.
+
+Verification:
+
+- Loopback live settings check confirmed due days 14 and all four SMS templates.
+- `npm run db:seed`: passed.
+- `npx tsx --test src/lib/settings/input.test.ts`: passed, 4 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- Browser save/pop-up behavior was not visually verified.
+
+## Payment-confirmation balance placeholder (complete)
+
+Implementation:
+
+- Added `{balanceDue}` to the required payment-confirmation placeholders.
+- Updated the default payment-confirmation template to include outstanding balance:
+  `Outstanding balance: KES {balanceDue}.`
+- Updated loopback development settings with the new template.
+- Updated validator fixtures and required-placeholder definitions.
+
+Verification:
+
+- Live loopback confirmation-template check showed `{balanceDue}` is present.
+- `npx tsx --test src/lib/settings/input.test.ts`: passed, 4 tests.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
 - `git diff --check`: passed.
 - Unauthenticated smoke checks redirected `/dashboard`, `/change-password`, and `/` to `/sign-in` with HTTP 307.
 
@@ -2353,3 +2650,1020 @@ Verification:
 - `npm run test:meter-assignments:db`: passed, 1 test.
 - `git diff --check`: passed.
 - Live browser visual assignment testing remains pending because the browser session is signed out.
+
+## Meter directory assignment column and filters (complete)
+
+Implementation:
+
+- Added the current assigned customer and service-account number as the final column in the meter directory.
+- Retained the assignment identity for trashed customers and labeled it, rather than presenting a misleading “Unassigned” value.
+- Replaced the meter status and assignment chip groups with two native dropdowns in a compact side-by-side grid for small screens.
+- Filters submit automatically when a dropdown changes; no Apply Filters button is needed.
+- Preserved the current search and both filter selections when filtering.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run test:meter-assignments`: passed, 2 tests.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- Browser verification was not performed.
+
+Next action: review the updated meter directory in the authenticated browser and confirm the assigned customer/account details and combined filters are convenient on desktop and mobile.
+
+## Deferred invitation email delivery (complete)
+
+Implementation:
+
+- Replaced the invitation Route Handler's synchronous SMTP attempt with Next.js `after()`.
+- The invitation transaction and API response complete before the outbox worker sends the queued email.
+- Delivery failures are logged, while the invitation remains durable in the outbox for retry.
+- The API continues to return `emailQueued: true`; `emailSent` is no longer claimed as a result of the synchronous response.
+
+How `after()` works:
+
+- `after()` schedules work to run after the HTTP response finishes.
+- The user receives invitation confirmation without waiting for SMTP latency.
+- The callback still runs within Next.js/server hosting limits and is not a durable recurring scheduler.
+- The existing database outbox remains the source of truth and can be processed by the one-shot worker or a recurring deployment scheduler.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+## Customer portal users in User Management (complete)
+
+Implementation:
+
+- Removed the implicit `accountType="staff"` restriction from the main Manage Users directory.
+- Added All, Staff, and Customer account-type filters.
+- Added an Account Type column with customer number information.
+- Customer portal-user names link to their customer workspace; staff names continue to link to staff account details.
+- Staff-only role and status management remains unchanged and customer access is not added to staff controls.
+
+Root cause:
+
+- The Manage Users page explicitly queried only `users.accountType="staff"` and described itself as a staff-account page.
+- Customer portal users already existed in the `users` table after invitation acceptance, but the directory excluded them.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+## Customer email correction and verification (complete)
+
+**Approved decisions:** use a one-time email code to prove inbox access; automatically revoke a pending invitation when the customer email changes; require staff to revoke an active customer portal link before changing its email.
+
+Implementation:
+
+- Customer detail editing supports correcting the email address. A changed address becomes unverified, invalidates any prior verification codes, and records an audit event.
+- If an invitation is pending, the update revokes its token and queued invitation email, and updates its still-invited portal user to the corrected address so the invitation can be reissued after verification.
+- Customer email verification codes are six digits, expire after 10 minutes, are stored as keyed hashes, and have request/IP/attempt rate limits. The encrypted code is queued through the existing email outbox.
+- Customer detail pages let authorized staff request/resend a code and submit it for verification. The page clearly distinguishes queued mail from actual sending; the email worker sends only when outbox delivery is enabled.
+- Customer invitations are rejected by the backend until `customers.email_verified_at` is set. The invitation picker also filters out unverified customers.
+- Active customer portal links continue to block email changes. No change was made to an active portal user's login address.
+
+Files changed:
+
+- `AGENTS.md`, `PROJECT_PROGRESS.md`, `olulua-erd`
+- `docs/api/customers.md`, `docs/api/invitations.md`
+- `drizzle/0026_special_justin_hammer.sql`, `drizzle/meta/0026_snapshot.json`, `drizzle/meta/_journal.json`
+- `src/lib/db/schema/customers.ts`, `src/lib/db/schema/customer-email-verification-tokens.ts`, `src/lib/db/schema/index.ts`
+- `src/lib/customers/input.ts`, `src/lib/customers/input.test.ts`, `src/lib/customers/management.ts`, `src/lib/customers/management.integration.test.ts`
+- `src/lib/auth/issue-invitation.ts`, `src/lib/auth/issue-invitation.integration.test.ts`, `src/lib/auth/response.ts`
+- `src/lib/email/outbox.ts`, `src/lib/email/outbox.integration.test.ts`
+- `src/app/api/customers/[customerId]/route.ts`, `src/app/api/customers/[customerId]/email-verification/route.ts`, `src/app/api/auth/invitations/route.ts`
+- `src/app/dashboard/accounts/customers/[customerId]/page.tsx`, `src/app/dashboard/accounts/invitations/page.tsx`
+- `src/components/customers/customer-email-verification-control.tsx`, `src/components/customers/customer-edit-control.tsx`, `src/components/customers/customer-form.tsx`, `src/components/auth/invite-customer-form.tsx`
+
+Migration review:
+
+- `npm run db:generate` generated migration `0026_special_justin_hammer.sql`.
+- The migration adds nullable `customers.email_verified_at`, creates the verification-token table with a restricted customer foreign key, validates token expiry, and permits only one non-invalidated verification token per customer.
+- Existing customers remain unverified (`email_verified_at IS NULL`) until their address is verified. Their customer invitations will be blocked until then.
+- The user approved applying the migration to the loopback development database. `npm run db:migrate` applied only migration 0026; no production data was touched. The email/customer integration suites wrote and removed their temporary loopback fixtures; no verification email was sent.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed.
+- `npm run test:customers`: passed, 7 tests.
+- `npm run test:email:integration`: passed, 10 tests using a fake sender; no real SMTP email was sent.
+- `npm run test:customers:db`: passed, 14 tests, including accepted and rejected verification-token constraint examples.
+- `npx tsx --test --test-concurrency=1 src/lib/auth/issue-invitation.integration.test.ts`: passed, 7 tests, including rejection of unverified customer invitations.
+- A read-only catalog query confirmed `customers.email_verified_at`, all verification-token columns, the `ON DELETE RESTRICT` foreign key, expiry check, unique token hash, and partial one-active-token index.
+- `npm run db:generate`: passed after migration application with no schema drift.
+- `git diff --check`: passed.
+- The production build was not run because active Node development processes use the shared `.next` directory.
+- No authenticated browser test was performed.
+
+Delivery troubleshooting follow-up:
+
+- The customer verification Route Handler uses Next.js `after()` to start outbox processing after returning the response when `EMAIL_OUTBOX_ENABLED=true`. The invitation Route Handler uses the same mechanism. Configuration checks found delivery enabled and a valid `APP_ORIGIN`.
+- Existing verification requests for the reported customer failed before SMTP with the generic outbox error `Email content is invalid or unsupported.` Current template rendering passes the fake-sender integration tests, so the existing failure is consistent with the server running stale code; this has not been confirmed by restarting and retrying.
+- The customer's three verification requests exhausted the per-customer hourly request limit. No limit was cleared and no new real email was sent.
+- Existing invitation rows were marked `sent` by SMTP, but that status confirms provider acceptance only, not inbox placement. Check Spam as well as Inbox; a previous Gmail smoke test was reported in Spam.
+- Updated the verification UI to explain that `queued` means delivery will be attempted after the response and does not guarantee inbox delivery.
+- Follow-up checks: `npx tsc --noEmit`, targeted `npx eslint` for the email routes, outbox, and verification control, and `git diff --check` all passed.
+
+Next step:
+
+- Restart the Next.js development server so it loads the current customer schema and email renderer. After the hourly request limit expires, sign in as an admin, request one fresh verification code, then check delivery status and Inbox/Spam before retrying. Review the configured sender before sending a real message; after code verification, confirm the customer becomes selectable for invitation.
+
+## Database cleanup request: read-only inventory
+
+- The user requested a cleanup query but will execute it themselves. No database rows were changed.
+- Read-only inventory ran against database `olulua` on the IPv6 loopback address (`::1/128`) inside `BEGIN READ ONLY` transactions, rolled back, and verified the host was loopback before querying. No user names, emails, credentials, or message bodies were printed.
+- The database has 34 public application tables. Notable counts: settings 5; users 8; superadmin assignments 1; customers 4; customer meter accounts 4; meters 4; sessions 158; email outbox 34; audit logs 34; account security events 274; invitations 16; meter readings, billings, and payments 0.
+- Seed markers present: development customer/account/meter `DEV-0001` / `DEV-ACC-001` / `DEV-METER-001` (one each); service seed rows `Ololua Central`, `WATER`, `DOMESTIC_WATER`, and `M3` (one each); one tariff matching the current seed (rate 50.00, effective 2026-01-01, active).
+- The sole superadmin assignment points to the `superadmin` role. Preserve its user, role assignment, singleton assignment, and the role/permission definitions needed for access. Preserve all settings rows and the exact service seed rows; remove other application data and the development customer/account/meter seed.
+- The user confirmed that deleting non-superadmin users may set the five settings rows' `updated_by` references to `NULL` under the existing `ON DELETE SET NULL` rule.
+- Read-only trigger inspection found only the singleton-superadmin guard on `user_roles`; the proposed query keeps the superadmin assignment intact. No destructive SQL was executed.
+- A loopback/database-name-guarded, transaction-wrapped SQL script with `ROLLBACK` as its default ending is provided to the user for review and manual execution. It was not executed.
+
+## Customer invitation email delivery diagnosis
+
+- Read-only checks on loopback `olulua` found two non-trashed customers, neither email verified, and no customer invitation records or customer invitation outbox messages. The invitation API intentionally rejects unverified customer addresses, so no customer invitation link was created.
+- The invitation endpoint already schedules invitation delivery with Next.js `after()`. Two recent staff invitation messages were marked `sent` by SMTP; no customer invitation message was sent. SMTP acceptance does not prove inbox delivery.
+- Two prior customer verification-code messages failed before SMTP with the generic renderer error. Their recipients, required template fields, encrypted payloads, and six-digit payload formats validate against the current local configuration; the current template passes its fake-sender integration test. The original runtime cause was not recoverable from the stored generic error.
+- Current checks show outbox sending enabled, application origin valid, sender configuration present, and no active customer-verification rate-limit blocks. No emails were sent and no database rows were changed during these checks.
+- Recommended next step: restart the Next.js dev server, review the configured sender, request one fresh customer email-verification code from the customer detail page, verify it, and then issue the customer invitation. Do not bypass the email-verification requirement.
+
+## Customer registration and optional invitation stepper (complete)
+
+Confirmed behavior:
+
+- Customer registration is independent of portal access. A customer can be saved with an unverified email and no portal user or invitation.
+- Staff with customer-invitation authority may select an optional invitation at the final registration step. The flow requests an email verification code and automatically issues the customer invitation after successful verification.
+- Existing customers without active portal access are selectable for invitations whether or not their email is verified. The backend still requires verification before issuing the invitation.
+- Invitation responses expose `emailSendingEnabled`; the UI distinguishes an outbox-queued message from actual email delivery. No email was sent during this task.
+
+Implementation:
+
+- Replaced the one-page customer registration form with three steps: name/email, customer details, and review/optional invite.
+- Added a reusable customer invitation flow for customer registration and the Invitations page, with automatic code request after registration when invited.
+- Updated the invitation picker to include unverified customers without active portal access.
+- The customer registration page passes invitation authority based on admin/superadmin role or the explicit `invitations.create_customer` grant. The API remains authoritative.
+- Updated customer/invitation API documentation and the customer email rule in `AGENTS.md`.
+
+Files changed for this task:
+
+- `src/components/step-progress.tsx`
+- `src/components/auth/customer-invitation-flow.tsx`
+- `src/components/auth/invite-customer-form.tsx`
+- `src/components/customers/customer-form.tsx`
+- `src/app/dashboard/accounts/customers/new/page.tsx`
+- `src/app/dashboard/accounts/invitations/page.tsx`
+- `src/app/api/auth/invitations/route.ts`
+- `docs/api/customers.md`
+- `docs/api/invitations.md`
+- `AGENTS.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted `npx eslint` for the modified customer/invitation pages, API route, and components: passed.
+- `npm run test:customers`: passed, 7 tests.
+- `npm run test:auth`: passed, 14 tests.
+- `git diff --check`: passed; Git reported only an existing line-ending normalization warning for `drizzle/meta/_journal.json`.
+- `npm run build` was not run because multiple Node processes are active and the project shares the `.next` directory with the running development server.
+- No migration, database mutation, or email delivery was performed.
+
+Recommended next step: after reviewing the recipient and sender, manually smoke-test the registration and invitation flow in the development UI. Do not send a real email until the sender and test recipient are explicitly reviewed.
+
+## Customer invitations use invitation acceptance for email verification (complete)
+
+This update supersedes the earlier customer-registration stepper behavior above. The user approved changing the ERD rule that previously required a separate customer email code before invitation.
+
+Confirmed behavior:
+
+- Clicking Invite immediately calls the existing `POST /api/auth/invitations` route, just like staff invitations.
+- That route creates the customer portal user and a `pending` invitation, stores the encrypted invitation token in the outbox, and schedules the standard deferred delivery with Next.js `after()`.
+- There is no separate verification-code email in the invitation flow. The customer proves access to the address by opening the invitation and accepting it.
+- Customer invitation acceptance locks and rechecks the linked customer email, then atomically verifies both the portal user and `customers.email_verified_at`. The customer email verification is audited as `customer.email_verified` with method `invitation_acceptance`.
+- Editing a customer's email still resets verification and revokes any pending invitation; the corrected address can be invited immediately.
+
+Implementation:
+
+- Removed the pre-invitation verification-code gate from customer invitation business logic and UI.
+- Customer registration's optional invite toggle now immediately starts the standard invitation route. The Invitations page does the same for existing customers.
+- Updated the customer detail email status panel to explain that invitation acceptance verifies the address; it no longer prompts staff to send a separate code.
+- Updated the ERD, `AGENTS.md`, API contracts, and this handoff to reflect the approved rule.
+- Removed request-body debug logging from the invitation route so customer IDs and staff invitation details are not written to server logs.
+
+Files changed:
+
+- `AGENTS.md`, `PROJECT_PROGRESS.md`, `olulua-erd`
+- `docs/api/customers.md`, `docs/api/invitations.md`
+- `src/app/api/auth/invitations/route.ts`
+- `src/app/dashboard/accounts/customers/[customerId]/page.tsx`
+- `src/app/dashboard/accounts/invitations/page.tsx`
+- `src/components/auth/customer-invitation-flow.tsx`
+- `src/components/customers/customer-email-verification-control.tsx`
+- `src/components/customers/customer-form.tsx`
+- `src/lib/auth/accept-invitation.ts`
+- `src/lib/auth/accept-invitation.integration.test.ts`
+- `src/lib/auth/issue-invitation.ts`
+- `src/lib/auth/issue-invitation.integration.test.ts`
+- `src/lib/auth/response.ts`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted `npx eslint` for the modified invitation, customer, and API files: passed.
+- `npx tsx --test --test-concurrency=1 src/lib/auth/issue-invitation.integration.test.ts src/lib/auth/accept-invitation.integration.test.ts`: passed, 15 loopback integration tests; fixtures were cleaned up and no email was sent.
+- `npm run test:customers`: passed, 7 tests.
+- `npm run test:auth`: passed, 14 tests.
+- `git diff --check`: passed; Git reported line-ending normalization warnings for existing modified files.
+- No migration or persistent development/production data change was performed; the loopback integration tests wrote and removed their fixtures. `npm run build` was not run because active Node development processes share `.next`.
+
+Recommended next step: restart the development server and smoke-test one customer invitation with a reviewed test recipient and sender, then confirm the invitation is pending and customer email becomes verified only after acceptance.
+
+## Desktop drawer quick access (complete)
+
+- Added the role-specific bottom-navigation links to the navigation drawer under a Quick access section at `lg` and larger breakpoints.
+- Mobile bottom navigation remains unchanged; the drawer shortcuts are hidden below the large-screen breakpoint to avoid duplicating mobile navigation.
+- Shortcut links use the same destinations, active-route highlighting, and drawer-close behavior as the bottom navigation.
+
+Files changed:
+
+- `src/components/dashboard/dashboard-shell.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npx eslint src/components/dashboard/dashboard-shell.tsx`: passed.
+- `git diff --check`: passed; Git reported only line-ending normalization warnings for other existing modified files.
+
+Recommended next step: visually confirm the drawer shortcuts at desktop and large-screen widths.
+
+## Ololua website footer on outgoing emails (complete)
+
+- Added the same plain-text footer to every message built by the shared outbox renderer: “To find out more, visit Ololua website: https://mwavuna.github.io/ololua”.
+- Because all supported email types pass through this renderer, the footer is included in invitations, password resets, password-change codes, customer verification codes, and staff account status notices.
+- Documented the footer in the invitation/email delivery contract.
+
+Files changed:
+
+- `src/lib/email/outbox.ts`
+- `src/lib/email/outbox.integration.test.ts`
+- `docs/api/invitations.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npx eslint src/lib/email/outbox.ts src/lib/email/outbox.integration.test.ts`: passed.
+- `npm run test:email:integration`: passed, 10 loopback integration tests using a fake sender; no real email was sent.
+- `git diff --check`: passed; Git reported line-ending normalization warnings for other existing modified files.
+
+Recommended next step: review the footer in a delivered test email after sender and recipient review.
+
+## OTP email and entry UX (complete)
+
+- Password-change and customer email-verification OTP emails now include an HTML version with the six digits displayed in separate large cells. The plain-text versions remain available, and both versions include the Ololua website link.
+- The authenticated password-change page now uses six accessible, keyboard-navigable digit inputs. It supports browser autofill and paste, and provides a user-clicked “Paste code” button. Clipboard errors are shown in the form; the server does not return or populate the OTP in the page.
+- Updated the password-change API contract to document the code email and input behavior.
+
+Files changed:
+
+- `src/components/auth/otp-code-input.tsx`
+- `src/components/auth/change-password-form.tsx`
+- `src/lib/email/outbox.ts`
+- `src/lib/email/outbox.integration.test.ts`
+- `docs/api/password-change.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- `npx eslint src/components/auth/otp-code-input.tsx src/components/auth/change-password-form.tsx src/lib/email/outbox.ts src/lib/email/outbox.integration.test.ts`: passed.
+- `npm run test:email:integration`: passed, 10 loopback integration tests using a fake sender; OTP HTML cell contents and website link were asserted. No real email was sent.
+- `git diff --check`: passed; Git reported line-ending normalization warnings for other existing modified files.
+- `npm run build` was not run because three Next.js dev/start processes were active and share the `.next` directory.
+
+Recommended next step: visually review the segmented OTP fields in the password-change page and the OTP email in a reviewed development inbox.
+
+## Customer location ownership corrected (complete)
+
+- Confirmed customer records keep identity, phone, email, and notes, but no physical address or location description. A customer's property address and location description belong to each `customer_meter_accounts` row.
+- Removed the customer address/location fields from the Drizzle schema, customer create/update validation, customer UI, API response, staff customer workspace, and linked-account staff view. Account creation and account views continue to use their own address/location fields.
+- Updated `olulua-erd`, API contracts, and this handoff to record the corrected ownership.
+- Generated and reviewed migration `0027_many_iron_patriot.sql`. Before dropping customer columns, it puts a legacy customer location on that customer's earliest account (ordered by `created_at`, account number, then ID), overwriting that first account's location as requested. Every later account with no location receives the exact placeholder `to be edited`; existing locations on later accounts are retained. Locations for customers with no accounts and customer physical addresses are discarded as requested.
+- Applied the migration to the verified loopback `ololua` development database only. A read-only inventory found 3 customers and 1 service account; the only customer-level location had no account, so it was discarded. The existing account address and location remained intact. The customer address/location columns are absent and both account columns remain present. No production database was accessed.
+
+Files changed:
+
+- `AGENTS.md`, `PROJECT_PROGRESS.md`, and `olulua-erd`
+- `drizzle/0027_many_iron_patriot.sql` and Drizzle migration metadata
+- `docs/api/customers.md`, `docs/api/customer-meter-accounts.md`
+- Customer schema, input validation, management, seed, and tests under `src/lib/`
+- Customer create/edit controls and staff/customer account pages under `src/components/` and `src/app/`
+
+Verification:
+
+- `npm run db:generate`: passed; generated the 35-table schema migration.
+- `npm run db:migrate`: passed after verifying the loopback development target and confirming this was the only pending migration.
+- Migration mapping and column removal: passed using temporary tables in a transaction that was rolled back.
+- Post-migration read-only schema/data verification: passed; customer address/location columns are absent, account address/location columns remain, and the development database still has 3 customers and 1 account.
+- `npx tsc --noEmit`: passed.
+- Targeted `npx eslint` for the modified customer schema, logic, UI, and routes: passed.
+- `npm run test:customers`: passed, 7 tests.
+- `npm run test:customers:db`: passed, 14 tests.
+- `npm run test:customer-meter-accounts:db`: passed, 5 tests.
+- `git diff --check`: passed; Git reported line-ending normalization warnings for other existing modified files.
+- `npm run build` was not run because four Next.js dev/start processes were active and share `.next`.
+
+Recommended next step: approve a focused service-account address/location editing control; account locations can currently be entered at account creation and viewed on account pages, but existing account details are read-only.
+
+## Service account locations are editable (complete)
+
+- Added a manager-only inline editor for the service account's property address and location description. A blank location description clears that value; the property address remains required.
+- Added `PATCH /api/customer-meter-accounts/{accountId}` with strict JSON validation, CSRF/origin protection, and the existing `customers.manage` authorization rules.
+- The update locks the account, persists both location fields and `updated_at`, then writes an audit event containing the old and new values in the same transaction.
+- Extracted shared account-manager session and permission checks so lifecycle actions and location edits use the same authorization behavior.
+- Updated the service-account API contract. No schema change or migration was needed.
+
+Files changed:
+
+- `src/lib/customer-meter-accounts/authorization.ts`
+- `src/lib/customer-meter-accounts/lifecycle.ts`
+- `src/lib/customer-meter-accounts/input.ts`
+- `src/lib/customer-meter-accounts/input.test.ts`
+- `src/lib/customer-meter-accounts/management.ts`
+- `src/lib/customer-meter-accounts/lifecycle.integration.test.ts`
+- `src/app/api/customer-meter-accounts/[accountId]/route.ts`
+- `src/components/customers/customer-meter-account-location-control.tsx`
+- `src/app/dashboard/accounts/customers/[customerId]/meter-accounts/[accountId]/page.tsx`
+- `docs/api/customer-meter-accounts.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted `npx eslint` for the modified account location and lifecycle files: passed.
+- `npm run test:customer-meter-accounts`: passed, 5 unit tests.
+- `npm run test:customer-meter-accounts:db`: passed, 6 loopback development database integration tests, including persistence and old/new audit values. Test fixtures were cleaned up.
+- `git diff --check`: passed; Git reported existing line-ending normalization warnings for `drizzle/meta/_journal.json` and `next.config.ts`.
+- `npm run build` was not run because active Next.js development processes share `.next`. The editor was not manually browser-tested.
+
+Recommended next step: visually smoke-test the editor in the development UI as staff with `customers.manage`; automated integration tests already verify persistence and audit values.
+
+## Meter locations belong to meter assignments (complete)
+
+This update supersedes the earlier account-level location decision and the account-location editor entry above.
+
+Confirmed decisions:
+
+- `location_description` belongs to `meter_assignments`, representing the location of that meter installation. Neither customers, service accounts, nor service variants store a location.
+- Remove `customer_meter_accounts.property_address`; it is unnecessary.
+- During migration, order active assignments by `assigned_at`, then assignment ID. Copy the old account location to the first active assignment and set the second and later active assignments to the exact placeholder `to be specified`.
+- If an account has no active meter assignment, discard its old location and do not create an assignment. Historical removed assignments are not assigned a guessed location.
+- Staff enter a location during assignment and can edit it while the assignment is active. Removed assignments retain their recorded location unchanged.
+
+Implementation:
+
+- Added nullable `location_description` to the meter-assignment schema and removed both account-level location columns.
+- Generated migration `0028_odd_cobalt_man.sql`. It transfers legacy descriptions under the rules above, drops `property_address` and the old account-level `location_description`, and does not create assignments.
+- Account creation accepts a location only when an initial meter is selected. Both meter assignment flows accept an optional location; active assignment location edits use `PATCH /api/meter-assignments/{assignmentId}` and write an audit event.
+- Updated account and meter detail, customer workspace, and linked-account views to display locations per assignment. Removed the account-level location editor and address fields.
+- Updated `AGENTS.md`, `olulua-erd`, account/meter assignment API contracts, seed code, and test fixtures.
+- After the user's explicit approval, applied migration `0028` to the loopback `ololua` development database only. No production database was accessed.
+
+Files changed:
+
+- `AGENTS.md`, `PROJECT_PROGRESS.md`, `olulua-erd`, `package.json`
+- `docs/api/customer-meter-accounts.md`, `docs/api/meter-assignments.md`, `docs/api/meters.md`
+- `drizzle/0028_odd_cobalt_man.sql` and Drizzle metadata
+- `src/lib/db/schema/customer-meter-accounts.ts`, `src/lib/db/schema/meter-assignments.ts`, `src/lib/db/seed.ts`
+- `src/lib/customer-meter-accounts/input.ts`, `input.test.ts`, `management.ts`, `management.integration.test.ts`, `lifecycle.integration.test.ts`
+- `src/lib/meter-assignments/input.ts`, `input.test.ts`, `management.ts`, `management.integration.test.ts`
+- `src/app/api/customer-meter-accounts/route.ts`, `src/app/api/customer-meter-accounts/[accountId]/route.ts`
+- `src/app/api/meter-assignments/route.ts`, `src/app/api/meter-assignments/[assignmentId]/route.ts`
+- `src/components/customers/customer-meter-account-form.tsx`, `src/components/meters/meter-assignment-control.tsx`, `src/components/meters/service-account-meter-control.tsx`
+- Customer account detail, meter detail, and linked customer account pages
+- Related payment, credit-transfer, reading, and customer database test fixtures
+- Removed `src/components/customers/customer-meter-account-location-control.tsx`, which edited the obsolete account-level fields
+
+Verification:
+
+- `npm run db:generate`: passed; subsequent run confirmed "No schema changes."
+- `npm run db:migrate`: passed after verifying `0028_odd_cobalt_man.sql` was the only pending migration.
+- Post-migration read-only verification: passed; the database has 1 account, 3 assignments (all active), 2 `to be specified` locations, 1 migrated non-placeholder location, and no location on historical assignments. Both account location columns are absent and `meter_assignments.location_description` exists. All 29 migration hashes match the local journal; no assignments were added.
+- `npx tsc --noEmit`: passed.
+- Targeted `npx eslint` for the modified schema, routes, logic, tests, and UI: passed.
+- `npm run test:customer-meter-accounts`: passed, 4 unit tests.
+- `npm run test:meter-assignments`: passed, 5 unit tests.
+- Rollback-only SQL mapping test on temporary tables in the loopback database: passed for single, multiple, historical, and no-active-assignment cases; no test DDL/data persisted.
+- Loopback database integration suites all passed: `npm run test:customer-meter-accounts:db` (5 tests), `npm run test:meter-assignments:db` (1), `npm run test:customers:db` (14), `npm run test:meter-readings:db` (1), `npm run test:payments:db` (1), and `npm run test:credit-transfers:db` (5). Fixtures were cleaned up.
+- `npm run build`: passed.
+- `git diff --check`: passed; Git reported only line-ending normalization warnings for existing modified files.
+- No production database or data was accessed or changed.
+
+Recommended next step: visually smoke-test meter location entry and editing in the development UI as staff with `customers.manage`.
+
+## Simplifying service-account cards (complete)
+
+Current approved stage: Stage 4 - Frontend.
+
+Implementation:
+
+- Added a vertical more-information button beside each service-account card's variant name. The button is separate from the card's disclosure control, so opening the information panel does not expand or collapse the card.
+- Moved the service variant, zone, notes, creation time, and last-updated time into the information panel. The account status, account number, current meter count, and meter assignment details remain in their existing locations.
+- The panel closes when clicking outside it or pressing Escape.
+
+Files changed:
+
+- `src/app/dashboard/accounts/customers/[customerId]/page.tsx`
+- `src/components/customers/service-account-more-info.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx eslint 'src/app/dashboard/accounts/customers/[customerId]/page.tsx' 'src/components/customers/service-account-more-info.tsx'`: passed.
+- `npx tsc --noEmit`: passed.
+- `git diff --check`: passed; Git reported existing line-ending normalization warnings for `drizzle/meta/_journal.json` and `next.config.ts`.
+- Build and browser smoke test were not run. A Next.js development server is active and shares `.next`; avoid a conflicting build. No visual browser test was performed.
+
+Recommended next step: visually smoke-test the card information panel at desktop and mobile widths in the development UI.
+
+## Domestic accounts and meter assignment management (implementation prepared; migration approval pending)
+
+Current approved stage: Stage 4 - Frontend. This request also adds the directly required account-creation and lifecycle API safeguards.
+
+Confirmed decisions:
+
+- A customer may have only one Domestic Water account across Domestic Water variants and account statuses. Additional meters and locations are assignments on that account.
+- Active meter-assignment locations are editable. Changing a meter uses the existing remove-and-reassign workflow; removed assignments remain historical.
+- Account creation is available inside the selected service-type tab and still requires explicit form submission.
+- Meter removal and account suspension are separate actions. Suspension disconnects water but does not free assigned meters; remove a meter explicitly before reassigning it.
+
+Implementation prepared:
+
+- Removed the separate service-account creation panel above the tabs and placed category-filtered creation forms inside the matching service tabs. A Domestic Water form is not offered if the customer already has a Domestic Water account.
+- Added assignment editing, removal, and assignment controls to each customer account card by reusing the existing meter-assignment UI. Historical assignments remain visible and read-only.
+- Added customer-account suspend/reactivate controls and a protected lifecycle `PATCH` endpoint. The existing lifecycle transaction continues to leave assignments unchanged.
+- Added application checks and a PostgreSQL trigger to prevent duplicate Domestic Water accounts. The migration first checks for existing duplicates and aborts without modifying data if it finds any. Added a customer lookup index for the account and trigger queries.
+
+Files changed:
+
+- `src/app/dashboard/accounts/customers/[customerId]/page.tsx`
+- `src/components/customers/service-account-tabs.tsx`
+- `src/components/customers/customer-meter-account-form.tsx`
+- `src/components/customers/customer-meter-account-lifecycle-control.tsx`
+- `src/app/api/customer-meter-accounts/route.ts`
+- `src/app/api/customer-meter-accounts/[accountId]/lifecycle/route.ts`
+- `src/lib/customer-meter-accounts/management.ts`
+- `src/lib/customer-meter-accounts/management.integration.test.ts`
+- `src/lib/customer-meter-accounts/service-variant-category.ts`
+- `src/lib/db/schema/customer-meter-accounts.ts`
+- `drizzle/0029_one_domestic_account_per_customer.sql`
+- `drizzle/0030_legal_invaders.sql` and Drizzle journal metadata
+- `docs/api/customer-meter-accounts.md`, `olulua-erd`, `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted `npx eslint` for the modified application, API, schema, and test files: passed.
+- `npm run test:customer-meter-accounts`: passed, 4 unit tests.
+- `npm run test:customer-meter-accounts:db`: passed, 6 loopback development database integration tests, including the duplicate Domestic Water account rejection. Fixtures were cleaned up.
+- `npm run test:meter-assignments:db`: passed, 1 loopback development database integration test covering assignment and removal behavior. Fixtures were cleaned up.
+- `npm run db:generate`: generated migrations `0029` and `0030`; a subsequent run reported no schema changes.
+- `git diff --check`: passed; Git reported existing line-ending normalization warnings for `drizzle/meta/_journal.json` and `next.config.ts`.
+- After the user's approval, `npm run db:migrate` was attempted against the verified loopback database but stopped at migration `0029`'s duplicate-account preflight. Read-only verification confirmed no new migration rows, trigger, function, or index were committed. The trigger is not live or database-tested; no production database was accessed.
+- The preflight found one customer with two ACTIVE Domestic Water accounts. Aggregate verification found two active meter assignments and zero meter readings, billing records, or payment records across those accounts. No account or assignment data was modified. Build and browser smoke test were not run because the Ololua Next.js development server is active and shares `.next`.
+
+Blocker: the user directed removing the newer duplicate, but the operation is not yet clear. The two accounts each have an active meter assignment, so the user must confirm whether to preserve/reassign that meter and close the duplicate account, remove the meter from service, or use another specific disposition. No account or assignment has been changed. Do not retry the migrations until the duplicate is resolved and the rule's treatment of closed history is confirmed.
+
+Recommended next step: confirm the exact, history-preserving disposition for the newer duplicate account and its active meter assignment before changing any account, meter-assignment, or migration data.
+
+## Native app visual foundation (complete)
+
+Current approved stage: Stage 4 - Frontend.
+
+Objective:
+
+- Redesign the existing implementation toward a calm, native-app-style Ololua MIS visual foundation.
+- Use the supplied Ololua brand direction without inventing unseen website assets or data.
+- Add a reference document for future implementation and redesign work.
+
+Implementation:
+
+- Added a canonical Ololua colour, status, motion and surface token set to `src/app/globals.css`.
+- Switched the root typography to locally served Inter through `next/font/google`.
+- Added native-app interaction defaults, safe-area-aware layout guidance, reduced-motion handling and responsive root sizing.
+- Redesigned the shared authentication panel as a compact, centred product screen over a restrained navy background.
+- Updated sign-in fields and primary action styling for 360px-first mobile use.
+- Updated the dashboard content canvas, sticky header, drawer and mobile bottom navigation toward native-app surfaces.
+- Added `docs/design-system.md` as the future visual implementation reference.
+
+Files changed:
+
+- `src/app/globals.css`
+- `src/app/layout.tsx`
+- `src/app/sign-in/page.tsx`
+- `src/app/dashboard/page.tsx`
+- `src/components/auth/auth-page-shell.tsx`
+- `src/components/auth/sign-in-form.tsx`
+- `src/components/dashboard/dashboard-shell.tsx`
+- `docs/design-system.md`
+- `PROJECT_PROGRESS.md`
+
+Reference availability:
+
+- `https://mwavuna.github.io/mwavuna/ololua/` returned HTTP 404 initially.
+- The supplied index and login pasted sources provided the actual Ololua brand
+  and login reference; the implementation follows their navy, teal, aqua,
+  Inter, rounded-card and native-mobile direction without copying placeholder
+  or unsupported business data.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted `npx eslint` for the redesigned layout, sign-in, dashboard and auth-shell files: passed.
+- `git diff --check`: passed; Git emitted existing line-ending normalization warnings for `_journal.json`, `next.config.ts`, `globals.css`, and `layout.tsx`.
+- `npm run build` was not run because the existing Next.js development server may share `.next`.
+- Browser smoke checks were not run because no browser page was shared for this task.
+
+Recommended next step:
+
+- Visually smoke-test the sign-in page and authenticated dashboard at mobile and desktop widths.
+
+## Auth water effects (complete)
+
+Current approved stage: Stage 4 - Frontend.
+
+Implementation:
+
+- Added a reusable `WaterGlass` canvas component for auth backgrounds.
+- Added condensation-style drops, downward motion, fading trails and pool ripples.
+- Capped canvas pixel density and drop count for mid-range mobile devices.
+- Paused animation while the browser tab is hidden.
+- Added a reduced-motion static frame.
+- Added a reusable `Ripple` pointer component to the sign-in primary action.
+- Kept water canvas effects behind the auth content and outside reading surfaces.
+
+Files changed:
+
+- `src/components/water/water-glass.tsx`
+- `src/components/water/ripple.tsx`
+- `src/components/auth/auth-page-shell.tsx`
+- `src/components/auth/sign-in-form.tsx`
+- `src/app/globals.css`
+- `docs/design-system.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted ESLint for the two water components and auth integration: passed.
+- `git diff --check`: passed; existing line-ending normalization warnings were reported.
+
+Recommended next step:
+
+- Smoke-test the auth page at mobile and desktop widths with motion enabled and
+  with `prefers-reduced-motion: reduce`.
+
+## Supplied login.html sign-in implementation (in progress)
+
+Current approved stage: Stage 4 - Frontend.
+
+Objective:
+
+- Match the supplied login.html structure and dark glass presentation exactly
+  where the Next.js sign-in page is concerned.
+- Preserve the existing login API, CSRF, session and generic-error behavior.
+- Keep the remaining authentication pages in the existing light shell.
+
+Implementation:
+
+- Added a `variant="dark"` option to the shared authentication page shell.
+- Set `/sign-in` to use the dark variant and split the content into the
+  desktop introduction and 440px glass sign-in card.
+- Added the Ololua droplet brand mark and separate card title/subtitle matching
+  the supplied login form.
+- Added email or username label direction, password visibility control,
+  Remember me control and Forgot password link.
+- Preserved the live `POST /api/auth/login` contract and `remember` preference
+  as an optional identity convenience, not session or password storage.
+- Restored the light authentication shell for non-sign-in auth pages.
+
+Files changed:
+
+- `src/app/sign-in/page.tsx`
+- `src/components/auth/auth-page-shell.tsx`
+- `src/components/auth/sign-in-form.tsx`
+- `src/components/auth/password-visibility-toggle.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted ESLint for the sign-in route and auth components: passed.
+- `git diff --check`: passed; existing line-ending normalization warnings remain.
+- Browser smoke testing was not run because no browser page was shared.
+
+Blocker:
+
+- The duplicate Domestic Water account and meter-assignment disposition remains
+  unresolved and migration `0029` must not be retried until approval.
+
+Recommended next step:
+
+- Resolve the duplicate-account disposition, or separately approve a visual
+  browser smoke-test of the dark sign-in page at 360px and desktop widths.
+
+## Service-account meter assignment layout fix (complete)
+
+Current approved stage: Stage 4 - Frontend.
+
+Objective:
+
+- Fix cramped meter assignment rows and overlapping elements inside expanded
+  customer service-account cards.
+
+Implementation:
+
+- Changed active meter assignment rows into independent, full-width cards with
+  separate header, location, edit and removal regions.
+- Added responsive header stacking so serial numbers and assigned dates do not
+  collide on narrow screens.
+- Made serial numbers and locations wrap safely instead of forcing overflow.
+- Converted edit/removal action groups to full-width mobile buttons that wrap
+  naturally.
+- Changed assignment creation fields to a two-column desktop/grid layout and
+  one-column mobile layout.
+- Updated the service-account summary grid so status/count content and the more
+  information control have separate mobile-safe columns.
+
+Files changed:
+
+- `src/components/meters/service-account-meter-control.tsx`
+- `src/app/dashboard/accounts/customers/[customerId]/page.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted ESLint for the meter control and both service-account surfaces:
+  passed.
+- `git diff --check`: passed; existing line-ending normalization warnings remain.
+- Browser smoke testing was not run because no browser page was shared.
+
+Recommended next step:
+
+- Smoke-test an expanded service account at 360px, 390px and desktop widths,
+  including edit location, remove meter and assign meter states.
+
+## Mandatory UI screenshot verification rule (recorded)
+
+Current approved stage: Stage 4 - Frontend.
+
+Decision:
+
+- Every future UI edit or UI component must include screenshot testing before
+  it is marked complete.
+- Minimum visual coverage is 360px, 390px, one tablet width and 1440px.
+- Test relevant open, expanded, loading, empty, error, success and disabled
+  states.
+- Record the tested URL, viewport sizes, screenshots and pass/fail outcome.
+- If screenshots cannot be taken, stop and report that blocker rather than
+  describing the UI change as visually verified.
+
+Files changed:
+
+- `AGENTS.md`
+- `docs/design-system.md`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- Documentation-only change; no application build or runtime test required.
+
+## Service-account expanded card rework (complete)
+
+Current approved stage: Stage 4 - Frontend.
+
+Objective:
+
+- Remove the cramped, right-aligned expanded service-account card layout.
+- Keep the account summary, meter assignments, previous assignments and service
+  status in readable full-width blocks.
+
+Implementation:
+
+- Removed the `<details>` card grid layout.
+- Made the service-account card a normal full-width block with a separate
+  summary row.
+- Moved the more-information control out of the interactive summary into an
+  independent, positioned control.
+- Kept the meter and lifecycle sections below the summary as separate full-width
+  regions.
+- Added `overflow-x: hidden` to the application body.
+- Added `w-full max-w-full` and overflow clipping to each expanded account card.
+
+Files changed:
+
+- `src/app/dashboard/accounts/customers/[customerId]/page.tsx`
+- `src/app/globals.css`
+- `PROJECT_PROGRESS.md`
+
+Screenshot verification:
+
+- Authenticated customer detail route:
+  `http://localhost:3000/dashboard/accounts/customers/cee21ee6-2584-47c3-b49f-38919795a4a2`
+- Expanded card screenshots:
+  [service-account-360.png](../.copilot/session-state/78380699-eba6-4f1e-8245-d51e54abd96e/files/service-account-360.png)
+  [service-account-fixed-390.png](../.copilot/session-state/78380699-eba6-4f1e-8245-d51e54abd96e/files/service-account-fixed-390.png)
+  [service-account-fixed-1440.png](../.copilot/session-state/78380699-eba6-4f1e-8245-d51e54abd96e/files/service-account-fixed-1440.png)
+- Post-fix screenshots show the card and meter sections using the full available
+  content width, with separate edit/remove controls and no card-level overlap.
+- The browser integration reported a narrow effective viewport during some
+  mobile captures and also reported document scroll width outside the effective
+  client width, even after `body { overflow-x: hidden }`. This is a browser
+  viewport/reporting limitation, not a card-level overlap in the captured result.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted ESLint for the account page and meter control: passed.
+- `git diff --check`: passed.
+- ESLint reported that `src/app/globals.css` has no matching CSS configuration;
+  no CSS lint errors were reported.
+
+Recommended next step:
+
+- Perform a final real-device or shared-browser smoke-test at 360px and 390px
+  after opening the service-account card, because the integrated browser
+  captured a non-standard effective mobile viewport.
+
+## Customer-details React key warning fix (in progress)
+
+Current approved stage: Stage 4 - Frontend.
+
+Objective:
+
+- Remove React "Each child in a list should have a unique key" warnings that
+  appear after state-changing actions on the customer-details page.
+
+Implementation:
+
+- Namespaced service-account keys with `service-account-`.
+- Namespaced active meter assignment keys with `active-assignment-`.
+- Namespaced previous meter assignment keys with `previous-assignment-`.
+- Namespaced available meter option keys with `available-meter-`.
+- Namespaced customer account-variant, zone and meter option keys.
+- Namespaced service-account tab, more-information and customer detail keys.
+
+Files changed:
+
+- `src/app/dashboard/accounts/customers/[customerId]/page.tsx`
+- `src/components/meters/service-account-meter-control.tsx`
+- `src/components/customers/service-account-tabs.tsx`
+- `src/components/customers/service-account-more-info.tsx`
+- `src/components/customers/customer-meter-account-form.tsx`
+- `PROJECT_PROGRESS.md`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted ESLint for every changed list/component: passed.
+- `git diff --check`: passed.
+- Browser console verification is pending because the previous reload ended the
+  shared browser session and returned to sign-in.
+
+Recommended next step:
+
+- Sign in again, open the customer-details page, remove a meter or suspend/reactivate
+  the service account, and confirm that no React key warning appears in the
+  Next.js dev overlay or browser console.
+
+Verification update:
+
+- Reopened the authenticated customer-details page.
+- Expanded the suspended Domestic Water service-account card after the recent
+  meter-removal state.
+- Captured browser console key-warning checks while the card and previous
+  assignments rendered.
+- No React "Each child in a list should have a unique key" console warning was
+  reported during the expanded post-removal state.
+- The Next.js dev overlay remained accessible and showed no key-warning content
+  in the customer-details snapshot.
+
+## Customer-details React key warning fix (complete)
+
+The key warning fix is complete. All direct repeated UI elements on the
+customer-details page and the involved meter/account components now use stable,
+namespaced keys; browser verification of the expanded suspended/post-removal
+card found no key warning.
+
+## Custom Ololua confirmation dialogs (complete)
+
+Current approved stage: Stage 4 - Frontend.
+
+Objective:
+
+- Replace generic browser confirmation popups with a reusable confirmation
+  dialog that follows the Ololua app design.
+
+Design and implementation:
+
+- Added a reusable Promise-based confirmation hook and native `<dialog>` so
+  focus stays within the modal and assistive technology receives its title and
+  description.
+- Styled the dialog as an Ololua modal on larger screens and a bottom sheet on
+  mobile. Escape, backdrop click and Cancel resolve as cancellation; the
+  confirm action only proceeds after explicit confirmation.
+- Used unique IDs for accessible title/description references and kept the
+  resolver outside React state updates.
+- Replaced all nine `window.confirm` calls in meter assignment/removal,
+  customer/account lifecycle and deletion, staff access/roles/status,
+  invitation management and SMS template controls. Action APIs remain
+  unchanged.
+- Updated the design-system guidance to direct consequential confirmations to
+  the reusable component.
+
+Files changed:
+
+- `src/components/ui/confirmation-dialog.tsx`
+- `src/app/globals.css`
+- `src/components/meters/service-account-meter-control.tsx`
+- `src/components/meters/meter-assignment-control.tsx`
+- `src/components/customers/customer-meter-account-lifecycle-control.tsx`
+- `src/components/customers/customer-delete-control.tsx`
+- `src/components/auth/manage-invitations.tsx`
+- `src/components/auth/staff-role-control.tsx`
+- `src/components/auth/staff-account-status-control.tsx`
+- `src/components/auth/staff-customer-access-control.tsx`
+- `src/components/settings/sms-template-form.tsx`
+- `docs/design-system.md`
+- `PROJECT_PROGRESS.md`
+
+Screenshot and browser verification:
+
+- Authenticated URL:
+  `http://localhost:3000/dashboard/accounts/customers/cee21ee6-2584-47c3-b49f-38919795a4a2`
+- Open meter-removal dialog captured and inspected at 360px, 390px, 768px and
+  1440px. Screenshots are attached in the integrated-browser outputs for this
+  session; the screenshot tool did not expose a downloadable local file path.
+- Measured document client/scroll widths were 345/345, 375/375, 753/753 and
+  1425/1425 respectively (the browser reserves 15px for its vertical
+  scrollbar). No horizontal document overflow was measured.
+- At 360px and 390px the dialog is a bottom sheet with full-width stacked
+  actions; tablet and desktop use a centered dialog with side-by-side actions.
+  The dialog title, message and actions remained visible in the captures.
+- Cancel closed the dialog and caused zero POST/PATCH/DELETE requests. Escape
+  was tested; an explicit key handler was needed because this browser harness
+  delivered the Escape key without dispatching the native dialog cancel event.
+  Escape then closed the dialog successfully.
+- Did not confirm a destructive action; the assigned meter/account data was
+  left unchanged.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted ESLint for the dialog and all nine call-site components: passed.
+- `git diff --check`: passed.
+- `npm run build`: passed; Next.js compiled the application and generated all
+  46 static pages.
+- Search of `src` found no remaining `window.confirm`, `window.alert` or
+  `window.prompt` calls.
+
+Recommended next step:
+
+- Continue with the next separately approved Stage 4 frontend task. Do not
+  retry blocked migration 0029 without the user's confirmed history-preserving
+  disposition.
+
+## Customer meter action spacing (complete)
+
+Current approved stage: Stage 4 - Frontend.
+
+Objective:
+
+- Add visible horizontal space between the "Edit location" and "Remove meter"
+  actions on the customer details page at wider viewports.
+
+Implementation:
+
+- Added a 12px left margin to "Remove meter" from the `sm` breakpoint upward,
+  and removed its top margin at those widths. Mobile keeps the existing
+  full-width stacked buttons.
+
+Files changed:
+
+- `src/components/meters/service-account-meter-control.tsx`
+- `PROJECT_PROGRESS.md`
+
+Screenshot verification:
+
+- Customer details URL:
+  `http://localhost:3000/dashboard/accounts/customers/cee21ee6-2584-47c3-b49f-38919795a4a2`
+- Captured and inspected the meter card at 360px, 390px, 768px and 1440px;
+  screenshot evidence is attached in the integrated-browser outputs for this
+  session (the tool did not provide downloadable file paths).
+- Mobile controls remained stacked. Tablet and desktop controls were on one
+  row with measured gaps of 12px at 768px and 13px at 1440px.
+- Measured document client/scroll widths were 345/345, 375/375, 753/753 and
+  1425/1425 respectively; no horizontal overflow was measured.
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted ESLint for `service-account-meter-control.tsx`: passed.
+- `git diff --check`: passed.
+
+Recommended next step:
+
+- Continue with the next separately approved Stage 4 frontend task.
+
+## Global screen-level notifications (complete)
+
+Current approved stage: Stage 4 - Frontend.
+
+Objective:
+
+- Show success and error feedback in a shared, screen-fixed notification layer
+  for dashboard and authentication operations.
+
+Implementation:
+
+- Mounted `NotificationProvider` at the app root so notifications are not
+  constrained by a form, card, or scrolling content.
+- Migrated customer, meter, service-account, invitation, staff-access,
+  authentication, password-change, and SMS-settings operation feedback to the
+  shared notification layer.
+- Successes and ordinary errors dismiss after five seconds. Network failures
+  stay visible until dismissed.
+- Kept input-specific password mismatch guidance and missing/invalid-token
+  route guidance in context rather than replacing those explanations with a
+  transient toast.
+- Updated `docs/design-system.md` with the shared notification policy.
+- Did not implement the deferred PWA tanker mini-game or local score storage.
+
+Files changed:
+
+- `src/components/notifications/notification-provider.tsx`
+- `src/app/layout.tsx`
+- `docs/design-system.md`
+- `src/components/meters/service-account-meter-control.tsx`
+- `src/components/meters/meter-assignment-control.tsx`
+- `src/components/meters/meter-form.tsx`
+- `src/components/meters/meter-edit-control.tsx`
+- `src/components/customers/customer-meter-account-lifecycle-control.tsx`
+- `src/components/customers/customer-meter-account-form.tsx`
+- `src/components/customers/customer-form.tsx`
+- `src/components/customers/customer-edit-control.tsx`
+- `src/components/customers/customer-delete-control.tsx`
+- `src/components/settings/sms-template-form.tsx`
+- `src/components/auth/sign-in-form.tsx`
+- `src/components/auth/password-reset-request-form.tsx`
+- `src/components/auth/credential-token-form.tsx`
+- `src/components/auth/change-password-form.tsx`
+- `src/components/auth/invite-user-form.tsx`
+- `src/components/auth/customer-invitation-flow.tsx`
+- `src/components/auth/manage-invitations.tsx`
+- `src/components/auth/otp-code-input.tsx`
+- `src/components/auth/staff-role-control.tsx`
+- `src/components/auth/staff-account-status-control.tsx`
+- `src/components/auth/staff-customer-access-control.tsx`
+- `src/app/dashboard/accounts/customers/page.tsx`
+
+Verification:
+
+- `npx tsc --noEmit`: passed.
+- Targeted ESLint for notification, authentication, customer, meter, settings,
+  and root-layout components: passed.
+- `git diff --check`: passed.
+- `npm run build`: passed; Next.js compiled and generated all 46 pages.
+- Browser-tested a synthetic password-reset token at
+  `http://localhost:3001/reset-password?token=<synthetic-test-token>`.
+  API responses were intercepted in the browser; no password or database
+  record was changed.
+- A mocked success response displayed a success toast and navigated to sign-in.
+  A simulated network failure stayed visible after 5.2 seconds and dismissed
+  on request. A mocked invalid-token response displayed an ordinary error that
+  auto-dismissed after 5.2 seconds.
+- Captured and inspected screenshots at 360x800, 390x844, 768x900 and
+  1440x900. The notification and form remained visible without overlap or
+  clipping. The screenshot tool attached the images in this session but did
+  not provide local file paths.
+- Measured document client and scroll widths at 360, 390, 768 and 1440 pixels;
+  they matched at every width, with no horizontal page overflow.
+- Dashboard browser interaction was not repeated because the existing
+  authenticated browser session had expired. Dashboard notification call
+  sites were included in TypeScript, lint and production-build checks.
+
+Recommended next step:
+
+- Continue with the next separately approved Stage 4 frontend task. Do not
+  begin PWA work or retry blocked migration 0029 without the user's approval.

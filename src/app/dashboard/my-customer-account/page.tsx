@@ -69,8 +69,6 @@ export default async function MyCustomerAccountPage() {
       fullName: customers.fullName,
       phone: customers.phone,
       email: customers.email,
-      physicalAddress: customers.physicalAddress,
-      locationDescription: customers.locationDescription,
       status: customers.status,
     })
     .from(staffCustomerAccess)
@@ -104,8 +102,6 @@ export default async function MyCustomerAccountPage() {
       id: customerMeterAccounts.id,
       accountNumber: customerMeterAccounts.accountNumber,
       status: customerMeterAccounts.status,
-      propertyAddress: customerMeterAccounts.propertyAddress,
-      locationDescription: customerMeterAccounts.locationDescription,
       variantName: serviceVariants.variantName,
       zoneName: zones.zoneName,
     })
@@ -130,6 +126,7 @@ export default async function MyCustomerAccountPage() {
             assignedAt: meterAssignments.assignedAt,
             removedAt: meterAssignments.removedAt,
             initialReading: meterAssignments.initialReading,
+            locationDescription: meterAssignments.locationDescription,
           })
           .from(meterAssignments)
           .innerJoin(meters, eq(meterAssignments.meterId, meters.id))
@@ -268,8 +265,6 @@ export default async function MyCustomerAccountPage() {
             ["Type", access.customerType],
             ["Phone", access.phone],
             ["Email", access.email],
-            ["Physical address", access.physicalAddress ?? "Not recorded"],
-            ["Location", access.locationDescription ?? "Not recorded"],
           ].map(([label, value]) => (
             <div className="grid gap-1 border-b border-slate-100 py-3" key={label}>
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -309,10 +304,10 @@ export default async function MyCustomerAccountPage() {
                         {account.accountNumber}
                       </p>
                       <p className="mt-1 text-sm text-slate-700">
-                        {account.variantName} · {account.propertyAddress}
+                        {account.variantName}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
-                        {account.zoneName ?? "No zone"} · {account.locationDescription ?? "No location details"}
+                        {account.zoneName ?? "No zone"}
                       </p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
@@ -338,6 +333,7 @@ export default async function MyCustomerAccountPage() {
                           </span>
                           <span className="text-xs text-slate-600">
                             {assignment.removedAt ? "Previous meter" : "Current meter"}
+                            {" · "}{assignment.locationDescription ?? "Location not specified"}
                             {" · "}opening reading {assignment.initialReading}
                             {" · "}{formatDate(assignment.assignedAt)}
                           </span>

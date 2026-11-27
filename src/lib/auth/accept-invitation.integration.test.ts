@@ -2,11 +2,12 @@ import "dotenv/config";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { eq, like } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { POST as acceptInvitationRoute } from "@/app/api/auth/invitations/accept/route";
 import { db } from "@/lib/db";
 import {
   accountSecurityEvents,
+  auditLogs,
   customerUserAccess,
   customers,
   emailOutbox,
@@ -103,6 +104,7 @@ async function createInvitationFixture(
 }
 
 async function removeInvitationFixture(userId: string): Promise<void> {
+  await db.delete(auditLogs).where(eq(auditLogs.actorUserId, userId));
   await db.delete(accountSecurityEvents).where(eq(accountSecurityEvents.userId, userId));
   await db.delete(sessions).where(eq(sessions.userId, userId));
   await db.delete(emailOutbox).where(eq(emailOutbox.recipientUserId, userId));
@@ -234,6 +236,30 @@ test("customer invitation acceptance creates access and uses the customer sessio
       .limit(1);
     assert.equal(access?.customerId, fixture.customerId);
     assert.equal(access?.revokedAt, null);
+
+    const [customer] = await db
+      .select({ emailVerifiedAt: customers.emailVerifiedAt })
+      .from(customers)
+      .where(eq(customers.id, fixture.customerId!))
+      .limit(1);
+    assert.ok(customer?.emailVerifiedAt);
+
+    const [verificationAudit] = await db
+      .select({ action: auditLogs.action, newValues: auditLogs.newValues })
+      .from(auditLogs)
+      .where(
+        and(
+          eq(auditLogs.actorUserId, fixture.userId),
+          eq(auditLogs.entityId, fixture.customerId!),
+        ),
+      )
+      .limit(1);
+    assert.equal(verificationAudit?.action, "customer.email_verified");
+    assert.equal(
+      (verificationAudit?.newValues as { verificationMethod?: string } | null)
+        ?.verificationMethod,
+      "invitation_acceptance",
+    );
   } finally {
     await removeInvitationFixture(fixture.userId);
   }

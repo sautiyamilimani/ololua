@@ -17,6 +17,23 @@ process.env.EMAIL_OUTBOX_ENCRYPTION_KEY ??= Buffer.alloc(32, 0x5a).toString("bas
 process.env.APP_ORIGIN = "http://localhost:3000";
 
 const fixtureIds = new Set<string>();
+const WEBSITE_FOOTER =
+  "To find out more, visit Ololua website: https://mwavuna.github.io/ololua";
+
+function assertHasWebsiteFooter(message: OutgoingEmail | undefined): void {
+  assert.ok(message?.text.endsWith(WEBSITE_FOOTER));
+}
+
+function assertOtpHtml(message: OutgoingEmail | undefined, code: string): void {
+  const html = message?.html ?? "";
+  const cells = html.match(/<td style="[^"]+">[0-9]<\/td>/gu) ?? [];
+  const displayedCode = cells
+    .map((cell) => cell.replace(/^.*>([0-9])<\/td>$/u, "$1"))
+    .join("");
+
+  assert.equal(displayedCode, code);
+  assert.ok(html.includes('href="https://mwavuna.github.io/ololua"'));
+}
 
 function assertLocalDatabase(): void {
   const databaseUrl = process.env.DATABASE_URL;
@@ -115,6 +132,8 @@ test("the worker renders and sends invitation and reset messages without real SM
   );
   assert.ok(invitationMessage);
   assert.ok(resetMessage);
+  assertHasWebsiteFooter(invitationMessage);
+  assertHasWebsiteFooter(resetMessage);
   assert.equal(invitationMessage.to, `outbox-test-${invitation.id}@example.test`);
   assert.equal(resetMessage.to, `outbox-test-${reset.id}@example.test`);
   assert.ok(
@@ -172,6 +191,7 @@ test("the worker sends the suspension notice without a secret payload", async ()
   assert.deepEqual(result, { processed: 1, sent: 1, retried: 0, failed: 0 });
   assert.equal(messages.length, 1);
   assert.equal(messages[0]?.to, `outbox-test-${suspension.id}@example.test`);
+  assertHasWebsiteFooter(messages[0]);
   assert.match(messages[0]?.subject ?? "", /account is suspended/u);
   assert.match(messages[0]?.text ?? "", /contact Ololua Water Services support/u);
   assert.match(messages[0]?.text ?? "", /system administrator/u);
@@ -201,6 +221,7 @@ test("the worker sends the reactivation notice without a secret payload", async 
   assert.deepEqual(result, { processed: 1, sent: 1, retried: 0, failed: 0 });
   assert.equal(messages.length, 1);
   assert.equal(messages[0]?.to, `outbox-test-${reactivation.id}@example.test`);
+  assertHasWebsiteFooter(messages[0]);
   assert.match(messages[0]?.subject ?? "", /account has been reactivated/u);
   assert.match(messages[0]?.text ?? "", /sign in again/u);
   assert.match(messages[0]?.text ?? "", /contact Ololua Water Services support/u);
@@ -277,6 +298,8 @@ test("the password-change worker sends only the OTP template", async () => {
   assert.deepEqual(result, { processed: 1, sent: 1, retried: 0, failed: 0 });
   assert.equal(messages.length, 1);
   assert.equal(messages[0]?.to, `outbox-test-${otp.id}@example.test`);
+  assertHasWebsiteFooter(messages[0]);
+  assertOtpHtml(messages[0], "042681");
   assert.match(messages[0]?.subject ?? "", /password change/u);
   assert.match(messages[0]?.text ?? "", /042681/u);
   assert.match(messages[0]?.text ?? "", /expires in 10 minutes/u);
@@ -287,6 +310,40 @@ test("the password-change worker sends only the OTP template", async () => {
     .where(inArray(emailOutbox.id, [invitation.id, otp.id]));
   assert.equal(rows.find((row) => row.id === otp.id)?.status, "sent");
   assert.equal(rows.find((row) => row.id === invitation.id)?.status, "queued");
+});
+
+test("the customer email verification worker sends a one-time code", async () => {
+  const verification = await createOutboxRow({
+    templateKey: "customer_email_verification",
+    templateData: {
+      fullName: "Customer Verification Test",
+      customerNumber: "OLO-000123",
+    },
+    secretPayload: { otp: "042681" },
+  });
+  const messages: OutgoingEmail[] = [];
+  const sender: EmailSender = {
+    async sendMail(message) {
+      messages.push(message);
+      return { messageId: message.messageId };
+    },
+  };
+
+  const result = await processEmailOutboxBatch(sender, {
+    workerId: "outbox-customer-verification-worker",
+    fromAddress: "sender@example.test",
+    templateKey: "customer_email_verification",
+  });
+
+  assert.deepEqual(result, { processed: 1, sent: 1, retried: 0, failed: 0 });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.to, `outbox-test-${verification.id}@example.test`);
+  assertHasWebsiteFooter(messages[0]);
+  assertOtpHtml(messages[0], "042681");
+  assert.match(messages[0]?.subject ?? "", /verify your email/iu);
+  assert.match(messages[0]?.text ?? "", /OLO-000123/u);
+  assert.match(messages[0]?.text ?? "", /042681/u);
+  assert.match(messages[0]?.text ?? "", /expires in 10 minutes/u);
 });
 
 test("SMTP failures retry with backoff and eventually move the message to failed", async () => {

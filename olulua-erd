@@ -204,8 +204,7 @@ customers [icon: contact-round, color: brown] {
   full_name varchar(150) "not null"
   phone varchar(20) "not null"
   email varchar(254) "required before the customer can be invited"
-  physical_address text
-  location_description text
+  email_verified_at timestamptz "set when the customer accepts an invitation and verifies the email"
   status varchar(20) "not null: active | inactive"
   is_trashed boolean "not null default false"
   trashed_at timestamptz
@@ -213,6 +212,17 @@ customers [icon: contact-round, color: brown] {
   notes text
   created_at timestamptz "not null"
   updated_at timestamptz "not null"
+}
+
+customer_email_verification_tokens [icon: mail-check, color: cyan] {
+  id uuid pk
+  customer_id uuid fk "ON DELETE RESTRICT"
+  email varchar(254) "not null"
+  token_hash text "not null"
+  created_at timestamptz "not null"
+  expires_at timestamptz "not null"
+  verified_at timestamptz
+  invalidated_at timestamptz
 }
 
 // Customer deletion is soft: is_trashed, trashed_at, and trashed_by preserve
@@ -295,8 +305,6 @@ customer_meter_accounts [icon: house, color: "#1e3a8a"] {
   customer_id uuid fk
   service_variant_id uuid fk
   zone_id uuid fk "optional, nullable"
-  property_address text "not null"
-  location_description text
   notes text
   status varchar(20) "not null, default ACTIVE: ACTIVE | SUSPENDED | CLOSED"
   created_at timestamptz "not null"
@@ -308,6 +316,7 @@ meter_assignments [icon: link, color: teal] {
   meter_id uuid fk
   customer_meter_account_id uuid fk
   initial_reading numeric(12,3) "not null: baseline for the first reading"
+  location_description text "optional location of this meter installation"
   assigned_at timestamptz "not null"
   assigned_by uuid fk
   removed_at timestamptz
@@ -446,6 +455,7 @@ payment_allocation_reversals [icon: undo-2, color: "#c2410c"] {
 
 // CUSTOMERS AND ACCOUNTS
 customers.id < customer_meter_accounts.customer_id
+customers.id < customer_email_verification_tokens.customer_id
 service_variants.id < customer_meter_accounts.service_variant_id
 zones.id < customer_meter_accounts.zone_id
 
@@ -603,3 +613,6 @@ users.id < settings.updated_by
 // 34. Duplicate external payment references must be rejected.
 // 35. Payments and allocations must not be silently deleted.
 // 36. Corrections and reversals must be auditable.
+// 37. A customer may have at most one non-closed Domestic Water service account across all domestic variants; closed accounts remain historical.
+// 38. Additional domestic meters and locations belong to separate meter assignments under the one current account.
+// 39. Suspending an account disconnects water but does not remove meter assignments; meter removal is a separate, audited action.

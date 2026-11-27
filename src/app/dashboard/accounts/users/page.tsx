@@ -9,6 +9,7 @@ import {
   gt,
   ilike,
   inArray,
+  isNull,
   or,
 } from "drizzle-orm";
 import {
@@ -18,6 +19,8 @@ import {
 } from "@/components/auth/account-badges";
 import { db } from "@/lib/db";
 import {
+  customerUserAccess,
+  customers,
   invitations,
   roles,
   userRoles,
@@ -31,12 +34,13 @@ import {
 
 const MAX_SEARCH_LENGTH = 100;
 const MAX_RESULTS = 100;
+type AccountTypeFilter = "all" | "staff" | "customer";
 
 export const instant = false;
 
 export const metadata: Metadata = {
   title: "Manage users | Ololua Water Services",
-  description: "Search and view staff account information.",
+  description: "Search and view staff and customer portal accounts.",
   referrer: "no-referrer",
   robots: { index: false, follow: false },
 };
@@ -55,7 +59,7 @@ function escapeLikePattern(value: string): string {
 export default async function ManageUsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[] }>;
+  searchParams: Promise<{ q?: string | string[]; type?: string | string[] }>;
 }) {
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
 
@@ -74,6 +78,10 @@ export default async function ManageUsersPage({
     typeof params.q === "string"
       ? params.q.trim().slice(0, MAX_SEARCH_LENGTH)
       : "";
+  const accountTypeFilter: AccountTypeFilter =
+    params.type === "staff" || params.type === "customer"
+      ? params.type
+      : "all";
 
   if (!session.canManageStaffAccounts) {
     return (
@@ -88,7 +96,7 @@ export default async function ManageUsersPage({
           Manage users
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          Only administrators and superadministrators can view staff accounts.
+          Only administrators and superadministrators can view user accounts.
         </p>
       </section>
     );
@@ -106,14 +114,28 @@ export default async function ManageUsersPage({
       id: users.id,
       fullName: users.fullName,
       email: users.email,
+      accountType: users.accountType,
       status: users.status,
       createdAt: users.createdAt,
+      customerId: customers.id,
+      customerNumber: customers.customerNumber,
     })
     .from(users)
+    .leftJoin(
+      customerUserAccess,
+      and(
+        eq(customerUserAccess.userId, users.id),
+        isNull(customerUserAccess.revokedAt),
+      ),
+    )
+    .leftJoin(customers, eq(customerUserAccess.customerId, customers.id))
     .where(
-      searchCondition
-        ? and(eq(users.accountType, "staff"), searchCondition)
-        : eq(users.accountType, "staff"),
+      and(
+        accountTypeFilter === "all"
+          ? undefined
+          : eq(users.accountType, accountTypeFilter),
+        searchCondition,
+      ),
     )
     .orderBy(desc(users.createdAt), desc(users.id))
     .limit(MAX_RESULTS);
@@ -180,7 +202,7 @@ export default async function ManageUsersPage({
           Manage users
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          Search staff accounts and review their current roles and status.
+          Search staff and customer portal accounts and review their roles and status.
         </p>
       </header>
 
@@ -198,6 +220,9 @@ export default async function ManageUsersPage({
           placeholder="Search name or email"
           type="search"
         />
+        {accountTypeFilter !== "all" && (
+          <input name="type" type="hidden" value={accountTypeFilter} />
+        )}
         <button
           className="min-h-11 shrink-0 rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-900"
           type="submit"
@@ -206,23 +231,57 @@ export default async function ManageUsersPage({
         </button>
       </form>
 
+      <nav
+        aria-label="Filter users"
+        className="mb-6 grid grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-2"
+      >
+        {([
+          ["all", "All"],
+          ["staff", "Staff"],
+          ["customer", "Customers"],
+        ] as const).map(([value, label]) => {
+          const active = accountTypeFilter === value;
+          return (
+            <Link
+              aria-current={active ? "page" : undefined}
+              className={`inline-flex min-h-10 items-center justify-center rounded-lg border px-2 text-sm font-semibold ${
+                active
+                  ? "border-teal-800 bg-teal-800 text-white"
+                  : "border-slate-300 bg-white text-slate-700"
+              }`}
+              href={{
+                pathname: "/dashboard/accounts/users",
+                query: {
+                  ...(searchTerm ? { q: searchTerm } : {}),
+                  ...(value !== "all" ? { type: value } : {}),
+                },
+              }}
+              key={value}
+            >
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
+
       {accountRows.length === 0 ? (
         <p className="text-sm leading-6 text-slate-600">
           {searchTerm
-            ? "No staff accounts match your search."
-            : "No staff accounts were found."}
+            ? "No user accounts match your search."
+            : "No user accounts were found."}
         </p>
       ) : (
         <>
           <p className="mb-3 text-sm text-slate-500">
-            Showing up to {MAX_RESULTS} newest matching staff accounts.
+            Showing up to {MAX_RESULTS} newest matching user accounts.
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] text-left">
+            <table className="w-full min-w-[760px] text-left">
               <thead>
                 <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="px-3 py-3">Name</th>
                   <th className="px-3 py-3">Email</th>
+                  <th className="px-3 py-3">Account type</th>
                   <th className="px-3 py-3">Role</th>
                   <th className="px-3 py-3">Status</th>
                   <th className="px-3 py-3">Created</th>
@@ -235,15 +294,36 @@ export default async function ManageUsersPage({
                     key={user.id}
                   >
                     <td className="px-3 py-4 font-semibold text-slate-950">
-                      <Link
-                        className="text-teal-900 underline-offset-4 hover:underline"
-                        href={`/dashboard/accounts/users/${user.id}`}
-                      >
-                        {user.fullName}
-                      </Link>
+                      {user.accountType === "staff" ? (
+                        <Link
+                          className="text-teal-900 underline-offset-4 hover:underline"
+                          href={`/dashboard/accounts/users/${user.id}`}
+                        >
+                          {user.fullName}
+                        </Link>
+                      ) : user.customerId ? (
+                        <Link
+                          className="text-teal-900 underline-offset-4 hover:underline"
+                          href={`/dashboard/accounts/customers/${user.customerId}`}
+                        >
+                          {user.fullName}
+                        </Link>
+                      ) : (
+                        user.fullName
+                      )}
                       {user.id === session.user.id && <YouBadge />}
                     </td>
                     <td className="px-3 py-4">{user.email}</td>
+                    <td className="px-3 py-4">
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                        {user.accountType === "staff" ? "Staff" : "Customer"}
+                      </span>
+                      {user.customerNumber && (
+                        <span className="mt-1 block font-mono text-xs text-slate-500">
+                          {user.customerNumber}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-4">
                       <div className="flex flex-wrap gap-1.5">
                         {[...(rolesByUser.get(user.id)?.values() ?? [])].map(

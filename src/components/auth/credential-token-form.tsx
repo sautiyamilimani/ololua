@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { PasswordVisibilityToggle } from "./password-visibility-toggle";
+import { useNotifications } from "@/components/notifications/notification-provider";
 
 type CredentialTokenFormProps = {
   flow: "invitation" | "password-reset";
@@ -11,9 +12,7 @@ type CredentialTokenFormProps = {
 
 type FormState =
   | { kind: "idle" }
-  | { kind: "submitting" }
-  | { kind: "error"; message: string }
-  | { kind: "success"; message: string };
+  | { kind: "submitting" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -79,10 +78,16 @@ export function CredentialTokenForm({
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmationVisible, setConfirmationVisible] = useState(false);
   const [state, setState] = useState<FormState>({ kind: "idle" });
+  const notifications = useNotifications();
   const isInvitation = flow === "invitation";
   const passwordsMatch = confirmation.length > 0 && password === confirmation;
   const passwordsMismatch =
     isInvitation && confirmation.length > 0 && !passwordsMatch;
+
+  function showError(message: string, persistent = false): void {
+    setState({ kind: "idle" });
+    notifications.error(message, persistent);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -92,7 +97,7 @@ export function CredentialTokenForm({
     }
 
     if (password !== confirmation) {
-      setState({ kind: "error", message: "The passwords do not match." });
+      showError("The passwords do not match.");
       return;
     }
 
@@ -118,10 +123,10 @@ export function CredentialTokenForm({
         },
       );
     } catch {
-      setState({
-        kind: "error",
-        message: "We could not reach the service. Check your connection and try again.",
-      });
+      showError(
+        "We could not reach the service. Check your connection and try again.",
+        true,
+      );
       return;
     }
 
@@ -130,26 +135,17 @@ export function CredentialTokenForm({
     try {
       payload = await response.json();
     } catch {
-      setState({
-        kind: "error",
-        message: "We could not verify the response. Please try again.",
-      });
+      showError("We could not verify the response. Please try again.");
       return;
     }
 
     if (!response.ok) {
-      setState({
-        kind: "error",
-        message: getErrorMessage(getErrorCode(payload), flow),
-      });
+      showError(getErrorMessage(getErrorCode(payload), flow));
       return;
     }
 
     if (!isExpectedSuccess(payload, flow)) {
-      setState({
-        kind: "error",
-        message: "We could not verify the response. Please try again.",
-      });
+      showError("We could not verify the response. Please try again.");
       return;
     }
 
@@ -159,12 +155,8 @@ export function CredentialTokenForm({
     setConfirmationVisible(false);
     window.history.replaceState(null, "", window.location.pathname);
 
-    if (isInvitation) {
-      router.replace("/dashboard");
-      return;
-    }
-
-    setState({ kind: "success", message: getSuccessMessage(flow) });
+    notifications.success(getSuccessMessage(flow));
+    router.replace(isInvitation ? "/dashboard" : "/sign-in");
   }
 
   if (!token) {
@@ -176,17 +168,6 @@ export function CredentialTokenForm({
         {isInvitation
           ? "This invitation link is missing or malformed. Ask the office to send a new invitation."
           : "This reset link is missing or malformed. Request a new password-reset email."}
-      </div>
-    );
-  }
-
-  if (state.kind === "success") {
-    return (
-      <div
-        className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950"
-        role="status"
-      >
-        {state.message}
       </div>
     );
   }
@@ -264,15 +245,6 @@ export function CredentialTokenForm({
         Use at least 8 characters. Staff administrators need at least 12. A
         password manager can create and paste your password.
       </p>
-
-      {state.kind === "error" && (
-        <div
-          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-900"
-          role="alert"
-        >
-          {state.message}
-        </div>
-      )}
 
       <button
         className="flex min-h-11 w-full items-center justify-center rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
